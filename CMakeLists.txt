@@ -16,7 +16,7 @@ cmake_minimum_required(VERSION 2.8)
 # Modify the project name if you want: 
 #--------------------------------------------------------------
 
-project(ces_particlescan)
+project(ecs_particlescan)
 
 #--------------------------------------------------------------
 # === 2 ===
@@ -96,7 +96,7 @@ endif()
 # files in your project. 
 #--------------------------------------------------------------
 
-add_executable(ces_particlescan
+add_executable(ecs_particlescan
 				source/main.cpp
 				# source/conveyor.cpp
 				# source/SimulatorCES.h				
@@ -120,7 +120,7 @@ add_executable(ces_particlescan
 # install tree (if using an installed version of Chrono).
 #--------------------------------------------------------------
 
-set_target_properties(ces_particlescan PROPERTIES 
+set_target_properties(ecs_particlescan PROPERTIES 
 	    COMPILE_FLAGS "${CHRONO_CXX_FLAGS} ${EXTRA_COMPILE_FLAGS}"
 	    COMPILE_DEFINITIONS "CHRONO_DATA_DIR=\"${CHRONO_DATA_DIR}\""
 	    LINK_FLAGS "${CHRONO_LINKER_FLAGS}")
@@ -129,7 +129,7 @@ set_target_properties(ces_particlescan PROPERTIES
 # Link to Chrono libraries and dependency libraries
 #--------------------------------------------------------------
 
-target_link_libraries(ces_particlescan ${CHRONO_LIBRARIES})
+target_link_libraries(ecs_particlescan ${CHRONO_LIBRARIES})
 
 #--------------------------------------------------------------
 # === 4 (OPTIONAL) ===
