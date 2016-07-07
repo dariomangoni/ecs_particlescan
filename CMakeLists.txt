@@ -102,8 +102,9 @@ add_executable(ecs_particlescan
 				# source/SimulatorCES.h				
 				source/UserInterfaceEventReceiver.cpp
 				source/UserInterfaceEventReceiver.h
-				source/ElectricParticleProperty.h
+				source/ElectricParticleAssets.h
 				source/ElectrostaticCoronaSeparator.h
+				source/ElectrostaticCoronaSeparator.cpp
 				source/ProcessFlow.h
 				# source/ParserEmitter.h
 				# source/ParserElectricForcesCES.h

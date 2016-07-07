@@ -5,10 +5,7 @@
 
 using namespace chrono;
 
-// If one needs to add special data to a particle/object, the proper way to
-// do this is by inheriting a custom class from the base ChAsset. 
-// An asset of this class can then be created and attached to the
-// particle (see below).  ***ALEX
+
 
 class ElectricParticleProperty : public ChAsset
 { 
@@ -38,7 +35,8 @@ public:
 	{
 		e_mat_plastic = 0,
 		e_mat_metal = 1,
-		e_mat_other = 2
+		e_mat_other = 2,
+        e_mat_copper = 3
 	} e_material = e_mat_other;
 
     enum shape_type
@@ -51,9 +49,32 @@ public:
         e_other
     } e_shape = e_other;
 
-    shape_type GetShapeType() const { return e_shape; }
+
+    void SetMaterial(material_type mat)
+    {
+        e_material = mat;
+
+        switch (mat)
+        {
+        case ElectricParticleProperty::e_mat_plastic:
+            conductivity = 0;
+            break;
+        case ElectricParticleProperty::e_mat_metal:
+            break;
+        case ElectricParticleProperty::e_mat_other:
+            break;
+        case ElectricParticleProperty::e_mat_copper:
+            conductivity = 6670000;
+            break;
+        default:
+            break;
+        }
+
+    }
 	
 };
+
+
 
 //
 // This can be added to store the trajectory on a per-particle basis.
@@ -70,6 +91,15 @@ public:
         max_points = 80;
     }
 };
+
+
+
+
+
+
+
+
+
 
 
 #endif
