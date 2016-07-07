@@ -9,7 +9,7 @@
 
 
 // Forward declaration
-class WasteSeparator;
+class ElectrostaticCoronaSeparator;
 
 
 
@@ -17,13 +17,13 @@ class UserInterfaceEventReceiver : public irr::IEventReceiver
 {
 public:
 
-	UserInterfaceEventReceiver(chrono::irrlicht::ChIrrAppInterface* myapp, WasteSeparator* mysimulator);
+	UserInterfaceEventReceiver(chrono::irrlicht::ChIrrAppInterface* myapp, ElectrostaticCoronaSeparator* mysimulator);
 
 	bool OnEvent(const irr::SEvent& event) override;
 
 private: 
 	chrono::irrlicht::ChIrrAppInterface* application;
-	WasteSeparator* simulator;
+    ElectrostaticCoronaSeparator* simulator;
 
 public:
 	irr::gui::IGUIScrollBar*  scrollbar_flow;

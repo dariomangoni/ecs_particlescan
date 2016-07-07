@@ -2,7 +2,7 @@
 // from the GUI graphical user interface
 
 #include "UserInterfaceEventReceiver.h" 
-#include "SimulatorCES.h" 
+#include "ElectrostaticCoronaSeparator.h" 
 
 
 using namespace irr;
@@ -14,7 +14,7 @@ using namespace gui;
 using namespace chrono::irrlicht;
 
 
-UserInterfaceEventReceiver::UserInterfaceEventReceiver(ChIrrAppInterface* myapp, WasteSeparator* mysimulator)
+UserInterfaceEventReceiver::UserInterfaceEventReceiver(ChIrrAppInterface* myapp, ElectrostaticCoronaSeparator* mysimulator)
 {
 	// store pointer applicaiton
 	application = myapp;

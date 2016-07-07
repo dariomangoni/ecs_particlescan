@@ -38,7 +38,61 @@
 
 
 using namespace chrono;
+using namespace particlefactory;
 
+
+
+/// Utility function that plots a matrix over a rectangle
+static void drawDistribution(irr::video::IVideoDriver* driver,
+    chrono::ChMatrix<>& Z, // distribution matrix
+    chrono::ChCoordsys<>& mpos, // center coordinates of the rectangle that measures flow
+    double x_size, double y_size, // size of the rectangle
+    irr::video::SColor mcol = irr::video::SColor(50, 80, 110, 110),
+    bool use_Zbuffer = false
+)
+{
+    driver->setTransform(irr::video::ETS_WORLD, irr::core::matrix4());
+    irr::video::SMaterial mattransp;
+    mattransp.ZBuffer = true;
+    mattransp.Lighting = false;
+    driver->setMaterial(mattransp);
+
+    chrono::ChVector<> V1a(-x_size*0.5, y_size*0.5, 0);
+    chrono::ChVector<> V2a(x_size*0.5, y_size*0.5, 0);
+    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1a), mpos.TransformLocalToParent(V2a), mcol, use_Zbuffer);
+    chrono::ChVector<> V1b(-x_size*0.5, -y_size*0.5, 0);
+    chrono::ChVector<> V2b(x_size*0.5, -y_size*0.5, 0);
+    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1b), mpos.TransformLocalToParent(V2b), mcol, use_Zbuffer);
+    chrono::ChVector<> V1c(x_size*0.5, y_size*0.5, 0);
+    chrono::ChVector<> V2c(x_size*0.5, -y_size*0.5, 0);
+    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1c), mpos.TransformLocalToParent(V2c), mcol, use_Zbuffer);
+    chrono::ChVector<> V1d(-x_size*0.5, y_size*0.5, 0);
+    chrono::ChVector<> V2d(-x_size*0.5, -y_size*0.5, 0);
+    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1d), mpos.TransformLocalToParent(V2d), mcol, use_Zbuffer);
+
+    for (int iy = 0; iy < Z.GetColumns(); ++iy)
+    {
+        double mystep = y_size / Z.GetColumns();
+        double my = -0.5*y_size + iy*mystep + 0.5*mystep;
+        for (int ix = 0; ix < Z.GetRows(); ++ix)
+        {
+            double mxstep = x_size / Z.GetRows();
+            double mx = -0.5*x_size + ix*mxstep + 0.5*mxstep;
+            if (ix >0)
+            {
+                chrono::ChVector<> Vx1(mx - mxstep, my, Z(ix - 1, iy));
+                chrono::ChVector<> Vx2(mx, my, Z(ix, iy));
+                irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(Vx1), mpos.TransformLocalToParent(Vx2), mcol, use_Zbuffer);
+            }
+            if (iy >0)
+            {
+                chrono::ChVector<> Vy1(mx, my - mystep, Z(ix, iy - 1));
+                chrono::ChVector<> Vy2(mx, my, Z(ix, iy));
+                irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(Vy1), mpos.TransformLocalToParent(Vy2), mcol, use_Zbuffer);
+            }
+        }
+    }
+}
 
 class ElectrostaticCoronaSeparator 
 { 
@@ -67,6 +121,170 @@ public:
 
 	ElectrostaticCoronaSeparator()
 	{
+        surface_particles = std::make_shared<ChMaterialSurface>();
+        surface_particles->SetFriction(0.2f);
+        surface_particles->SetRollingFriction(0);
+        surface_particles->SetSpinningFriction(0);
+        surface_particles->SetRestitution(0);
+
+        // Init coordinate systems with position and rotation of important items in the 
+        // simulator. These are initializad with constant values, but if loading the
+        // SolidWorks model, they will be changed accordingly to what is found in the CAD 
+        // file (see later, where the SolidWorks model is parsed). 
+        /*
+        //***ALEX disabled because initialized by SolidWorks file, anyway
+        double conv_thick = 0.01;
+        double conveyor_length = 0.6;
+        conveyor_csys	= ChCoordsys<>( ChVector<>(0, -conv_thick, 0) ) ; // default position
+        drum_csys		= ChCoordsys<>( ChVector<>(conveyor_length/2, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
+        nozzle_csys		= ChCoordsys<>( ChVector<>(0, 0.01, 0) ); // default position
+        splitter1_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.2, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
+        splitter2_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.4, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
+        brush_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2-0.10, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
+        */
+
+
+        // Set small collision envelopes for objects that will be created from now on..
+        collision::ChCollisionModel::SetDefaultSuggestedEnvelope(0.001);  //0.002
+        collision::ChCollisionModel::SetDefaultSuggestedMargin(0.0005); //0.0008
+                                                                        // Set contact breaking/merging tolerance of Bullet:
+        collision::ChCollisionSystemBullet::SetContactBreakingThreshold(0.001);
+
+        // Important! dt is small, and particles are small, so it's better to keep this small...
+        mphysicalSystem.SetMaxPenetrationRecoverySpeed(0.15);// not needed in INT_TASORA, only for INT_ANITESCU
+        mphysicalSystem.SetMinBounceSpeed(0.1);
+
+
+        // In the following there is a default initialization of the 
+        // particle creation system, based on ChParticleEmitter. 
+        // This is a default configuration, that is _overridden_ if you 
+        // call ParseSettings() and load a settings.ces file that contain different
+        // configurations for the emitter.
+
+        // ---Initialize the randomizer for positions
+        emitter_positions = std::make_shared<ChRandomParticlePositionRectangleOutlet>();
+        emitter_positions->OutletWidth() = 0.1;    // default x outlet size, from CAD;
+        emitter_positions->OutletHeight() = 0.182; // default y outlet size, from CAD;
+        emitter.SetParticlePositioner(emitter_positions);
+
+        // ---Initialize the randomizer for alignments
+        emitter_rotations = std::make_shared<ChRandomParticleAlignmentUniform>();
+        emitter.SetParticleAligner(emitter_rotations);
+
+        // ---Initialize the randomizer for creations, with statistical distribution
+
+        // Create a ChRandomShapeCreator object (ex. here for metal particles)
+        std::shared_ptr<ChRandomShapeCreatorSpheres> mcreator_metal(new ChRandomShapeCreatorSpheres);
+        mcreator_metal->SetDiameterDistribution(std::make_shared<::ChMinMaxDistribution>(0.002, 0.003));
+
+        // Optional: define a callback to be exectuted at each creation of a metal particle:
+        class MyCreator_metal : public ChCallbackPostCreation
+        {
+            // Here do custom stuff on the just-created particle:
+        public:
+            virtual ~MyCreator_metal()
+            {
+            }
+
+            void PostCreation(std::shared_ptr<ChBody> mbody, ChCoordsys<> mcoords, ChRandomShapeCreator& mcreator) override
+            {
+                // Attach some optional visualization stuff
+                //std::shared_ptr<ChTexture> mtexture(new ChTexture);
+                //mtexture->SetTextureFilename("../objects/pinkwhite.png");
+                //mbody->AddAsset(mtexture);
+                std::shared_ptr<ChColorAsset> mvisual(new ChColorAsset);
+                mvisual->SetColor(ChColor(0.9f, 0.4f, 0.2f));
+                mbody->AddAsset(mvisual);
+                // Attach a custom asset. It will hold electrical properties
+                std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
+                electric_asset->e_fraction = ElectricParticleProperty::e_fraction_sphere;
+                electric_asset->e_material = ElectricParticleProperty::e_mat_metal;
+                electric_asset->conductivity = 58000000;
+                electric_asset->birthdate = this->systemreference->GetChTime();
+                ChVector<> Cradii; // use equivalent-inertia ellipsoid to get characteristic size:
+                ChVector<> Ine = mbody->GetInertiaXX();
+                Cradii.x = sqrt((5. / (2.*mbody->GetMass()))*(Ine.y + Ine.z - Ine.x));
+                Cradii.y = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.z - Ine.y));
+                Cradii.z = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.y - Ine.z));
+                electric_asset->Cdim = Cradii*2.;
+                mbody->AddAsset(electric_asset);
+            }
+            // here put custom data that might be needed by the callback:
+            ChSystem* systemreference;
+        };
+
+        auto callback_metal = std::make_shared<MyCreator_metal>();
+        callback_metal->systemreference = &this->mphysicalSystem;
+        mcreator_metal->SetCallbackPostCreation(callback_metal.get());
+
+
+        // Create a ChRandomShapeCreator object (ex. here for metal particles)
+        auto mcreator_plastic = std::make_shared<ChRandomShapeCreatorSpheres>();
+        mcreator_plastic->SetDiameterDistribution(std::make_shared<ChMinMaxDistribution>(0.002, 0.002));
+
+        // Optional: define a callback to be exectuted at each creation of a plastic particle:
+        class MyCreator_plastic : public ChCallbackPostCreation
+        {
+            // Here do custom stuff on the just-created particle:
+        public:
+            virtual ~MyCreator_plastic()
+            {
+            }
+
+            void PostCreation(std::shared_ptr<ChBody> mbody, ChCoordsys<> mcoords, ChRandomShapeCreator& mcreator) override
+            {
+                // Attach some optional visualization stuff
+                //std::shared_ptr<ChTexture> mtexture(new ChTexture);
+                //mtexture->SetTextureFilename("../objects/bluwhite.png");
+                //mbody->AddAsset(mtexture);
+                std::shared_ptr<ChColorAsset> mvisual(new ChColorAsset);
+                mvisual->SetColor(ChColor(0.3f, 0.6f, 0.7f));
+                mbody->AddAsset(mvisual);
+                // Attach a custom asset. It will hold electrical properties
+                std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
+                electric_asset->e_fraction = ElectricParticleProperty::e_fraction_sphere;
+                electric_asset->e_material = ElectricParticleProperty::e_mat_plastic;
+                electric_asset->conductivity = 0;
+                electric_asset->birthdate = this->systemreference->GetChTime();
+                ChVector<> Cradii;  // use equivalent-inertia ellipsoid to get characteristic size:
+                ChVector<> Ine = mbody->GetInertiaXX();
+                Cradii.x = sqrt((5. / (2.*mbody->GetMass()))*(Ine.y + Ine.z - Ine.x));
+                Cradii.y = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.z - Ine.y));
+                Cradii.z = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.y - Ine.z));
+                electric_asset->Cdim = Cradii*2.;
+                mbody->AddAsset(electric_asset);
+
+                ++particlecounter;
+                mbody->SetIdentifier(particlecounter);
+            }
+            // here put custom data of the callback
+            ChSystem* systemreference;
+            int particlecounter;
+        };
+        auto callback_plastic = std::make_shared<MyCreator_plastic>();
+        callback_plastic->systemreference = &this->mphysicalSystem;
+        callback_plastic->particlecounter = 0;
+        mcreator_plastic->SetCallbackPostCreation(callback_plastic.get());
+
+
+        // Create a parent ChRandomShapeCreator that 'mixes' the two generators above,
+        // mixing them with a given percentual:
+        auto mcreatorTot = std::make_shared<ChRandomShapeCreatorFromFamilies>();
+        mcreatorTot->AddFamily(mcreator_metal, 0.4);	// 1st creator family, with percentual
+        mcreatorTot->AddFamily(mcreator_plastic, 0.4);	// 2nd creator family, with percentual
+        mcreatorTot->Setup();
+
+        // Finally, tell to the emitter that it must use the 'mixer' above:
+        emitter.SetParticleCreator(mcreatorTot);
+
+
+        // ---Initialize the randomizer for velocities, with statistical distribution
+
+        auto mvelo = std::make_shared<ChRandomParticleVelocityConstantDirection>();
+        mvelo->SetDirection(-VECT_Y);
+        mvelo->SetModulusDistribution(0.0);
+
+        emitter.SetParticleVelocity(mvelo);
 	}
 
 
@@ -272,74 +490,9 @@ public:
 	}
 
 	
-};
-
-
-
-/// Utility function that plots a matrix over a rectangle
-static void drawDistribution(irr::video::IVideoDriver* driver,
-    chrono::ChMatrix<>& Z, // distribution matrix
-    chrono::ChCoordsys<>& mpos, // center coordinates of the rectangle that measures flow
-    double x_size, double y_size, // size of the rectangle
-    irr::video::SColor mcol = irr::video::SColor(50, 80, 110, 110),
-    bool use_Zbuffer = false
-)
-{
-    driver->setTransform(irr::video::ETS_WORLD, irr::core::matrix4());
-    irr::video::SMaterial mattransp;
-    mattransp.ZBuffer = true;
-    mattransp.Lighting = false;
-    driver->setMaterial(mattransp);
-
-    chrono::ChVector<> V1a(-x_size*0.5, y_size*0.5, 0);
-    chrono::ChVector<> V2a(x_size*0.5, y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1a), mpos.TransformLocalToParent(V2a), mcol, use_Zbuffer);
-    chrono::ChVector<> V1b(-x_size*0.5, -y_size*0.5, 0);
-    chrono::ChVector<> V2b(x_size*0.5, -y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1b), mpos.TransformLocalToParent(V2b), mcol, use_Zbuffer);
-    chrono::ChVector<> V1c(x_size*0.5, y_size*0.5, 0);
-    chrono::ChVector<> V2c(x_size*0.5, -y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1c), mpos.TransformLocalToParent(V2c), mcol, use_Zbuffer);
-    chrono::ChVector<> V1d(-x_size*0.5, y_size*0.5, 0);
-    chrono::ChVector<> V2d(-x_size*0.5, -y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1d), mpos.TransformLocalToParent(V2d), mcol, use_Zbuffer);
-
-    for (int iy = 0; iy < Z.GetColumns(); ++iy)
-    {
-        double mystep = y_size / Z.GetColumns();
-        double my = -0.5*y_size + iy*mystep + 0.5*mystep;
-        for (int ix = 0; ix < Z.GetRows(); ++ix)
-        {
-            double mxstep = x_size / Z.GetRows();
-            double mx = -0.5*x_size + ix*mxstep + 0.5*mxstep;
-            if (ix >0)
-            {
-                chrono::ChVector<> Vx1(mx - mxstep, my, Z(ix - 1, iy));
-                chrono::ChVector<> Vx2(mx, my, Z(ix, iy));
-                irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(Vx1), mpos.TransformLocalToParent(Vx2), mcol, use_Zbuffer);
-            }
-            if (iy >0)
-            {
-                chrono::ChVector<> Vy1(mx, my - mystep, Z(ix, iy - 1));
-                chrono::ChVector<> Vy2(mx, my, Z(ix, iy));
-                irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(Vy1), mpos.TransformLocalToParent(Vy2), mcol, use_Zbuffer);
-            }
-        }
-    }
-}
-
-
-
-
-using namespace particlefactory;
-
-class WasteSeparator
-{
 
 public:
     ChSystem mphysicalSystem;
-
-    ElectrostaticCoronaSeparator ces_forces; // this is the ElectrostaticCoronaSeparator itself that evaluates the forces that act on particles
 
     ChParticleEmitter emitter;
     std::shared_ptr<ChRandomParticlePositionRectangleOutlet> emitter_positions;
@@ -348,11 +501,11 @@ public:
     double drumspeed_rpm = 44.8; // [rpm]
     double drumspeed_radss = drumspeed_rpm*((2.0*CH_C_PI) / 60.0); //[rad/s]
 
-    //sphrad = 0.38e-3;
-    //sphrad2 = 0.25e-3;
-    //sphrad3 = 0.794e-3;
+                                                                   //sphrad = 0.38e-3;
+                                                                   //sphrad2 = 0.25e-3;
+                                                                   //sphrad3 = 0.794e-3;
 
-    // material surfaces
+                                                                   // material surfaces
     double surface_drum_friction = 0.5;
     double surface_drum_rolling_friction = 0.0;
     double surface_drum_spinning_friction = 0.0;
@@ -407,178 +560,6 @@ public:
     double timestep = 0.001;
     double Tmax = 5;
     bool splitters_collide = true;
-
-    ///
-    /// Create the WasteSeparator
-    /// and initialize member data
-    /// 
-    WasteSeparator()
-    {                  
-        surface_particles = std::make_shared<ChMaterialSurface>();
-        surface_particles->SetFriction(0.2f);
-        surface_particles->SetRollingFriction(0);
-        surface_particles->SetSpinningFriction(0);
-        surface_particles->SetRestitution(0);
-
-        // Init coordinate systems with position and rotation of important items in the 
-        // simulator. These are initializad with constant values, but if loading the
-        // SolidWorks model, they will be changed accordingly to what is found in the CAD 
-        // file (see later, where the SolidWorks model is parsed). 
-        /*
-        //***ALEX disabled because initialized by SolidWorks file, anyway
-        double conv_thick = 0.01;
-        double conveyor_length = 0.6;
-        conveyor_csys	= ChCoordsys<>( ChVector<>(0, -conv_thick, 0) ) ; // default position
-        drum_csys		= ChCoordsys<>( ChVector<>(conveyor_length/2, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
-        nozzle_csys		= ChCoordsys<>( ChVector<>(0, 0.01, 0) ); // default position
-        splitter1_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.2, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
-        splitter2_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.4, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
-        brush_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2-0.10, -(drum_diameter*0.5)-conv_thick/2,0) );  // default position
-        */
-
-
-        // Set small collision envelopes for objects that will be created from now on..
-        collision::ChCollisionModel::SetDefaultSuggestedEnvelope(0.001);  //0.002
-        collision::ChCollisionModel::SetDefaultSuggestedMargin(0.0005); //0.0008
-                                                             // Set contact breaking/merging tolerance of Bullet:
-        collision::ChCollisionSystemBullet::SetContactBreakingThreshold(0.001);
-
-        // Important! dt is small, and particles are small, so it's better to keep this small...
-        mphysicalSystem.SetMaxPenetrationRecoverySpeed(0.15);// not needed in INT_TASORA, only for INT_ANITESCU
-        mphysicalSystem.SetMinBounceSpeed(0.1);
-
-
-        // In the following there is a default initialization of the 
-        // particle creation system, based on ChParticleEmitter. 
-        // This is a default configuration, that is _overridden_ if you 
-        // call ParseSettings() and load a settings.ces file that contain different
-        // configurations for the emitter.
-
-        // ---Initialize the randomizer for positions
-        emitter_positions = std::make_shared<ChRandomParticlePositionRectangleOutlet>();
-        emitter_positions->OutletWidth() = 0.1;    // default x outlet size, from CAD;
-        emitter_positions->OutletHeight() = 0.182; // default y outlet size, from CAD;
-        emitter.SetParticlePositioner(emitter_positions);
-
-        // ---Initialize the randomizer for alignments
-        emitter_rotations = std::make_shared<ChRandomParticleAlignmentUniform>();
-        emitter.SetParticleAligner(emitter_rotations);
-
-        // ---Initialize the randomizer for creations, with statistical distribution
-
-        // Create a ChRandomShapeCreator object (ex. here for metal particles)
-        std::shared_ptr<ChRandomShapeCreatorSpheres> mcreator_metal(new ChRandomShapeCreatorSpheres);
-        mcreator_metal->SetDiameterDistribution(std::make_shared<::ChMinMaxDistribution>(0.002, 0.003));
-
-        // Optional: define a callback to be exectuted at each creation of a metal particle:
-        class MyCreator_metal : public ChCallbackPostCreation
-        {
-            // Here do custom stuff on the just-created particle:
-        public:
-            virtual ~MyCreator_metal()
-            {
-            }
-
-            void PostCreation(std::shared_ptr<ChBody> mbody, ChCoordsys<> mcoords, ChRandomShapeCreator& mcreator) override
-            {
-                // Attach some optional visualization stuff
-                //std::shared_ptr<ChTexture> mtexture(new ChTexture);
-                //mtexture->SetTextureFilename("../objects/pinkwhite.png");
-                //mbody->AddAsset(mtexture);
-                std::shared_ptr<ChColorAsset> mvisual(new ChColorAsset);
-                mvisual->SetColor(ChColor(0.9f, 0.4f, 0.2f));
-                mbody->AddAsset(mvisual);
-                // Attach a custom asset. It will hold electrical properties
-                std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
-                electric_asset->e_fraction = ElectricParticleProperty::e_fraction_sphere;
-                electric_asset->e_material = ElectricParticleProperty::e_mat_metal;
-                electric_asset->conductivity = 58000000;
-                electric_asset->birthdate = this->systemreference->GetChTime();
-                ChVector<> Cradii; // use equivalent-inertia ellipsoid to get characteristic size:
-                ChVector<> Ine = mbody->GetInertiaXX();
-                Cradii.x = sqrt((5. / (2.*mbody->GetMass()))*(Ine.y + Ine.z - Ine.x));
-                Cradii.y = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.z - Ine.y));
-                Cradii.z = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.y - Ine.z));
-                electric_asset->Cdim = Cradii*2.;
-                mbody->AddAsset(electric_asset);
-            }
-            // here put custom data that might be needed by the callback:
-            ChSystem* systemreference;
-        };
-
-        auto callback_metal = std::make_shared<MyCreator_metal>();
-        callback_metal->systemreference = &this->mphysicalSystem;
-        mcreator_metal->SetCallbackPostCreation(callback_metal.get());
-
-
-        // Create a ChRandomShapeCreator object (ex. here for metal particles)
-        auto mcreator_plastic = std::make_shared<ChRandomShapeCreatorSpheres>();
-        mcreator_plastic->SetDiameterDistribution(std::make_shared<ChMinMaxDistribution>(0.002, 0.002));
-
-        // Optional: define a callback to be exectuted at each creation of a plastic particle:
-        class MyCreator_plastic : public ChCallbackPostCreation
-        {
-            // Here do custom stuff on the just-created particle:
-        public:
-            virtual ~MyCreator_plastic()
-            {
-            }
-
-            void PostCreation(std::shared_ptr<ChBody> mbody, ChCoordsys<> mcoords, ChRandomShapeCreator& mcreator) override
-            {
-                // Attach some optional visualization stuff
-                //std::shared_ptr<ChTexture> mtexture(new ChTexture);
-                //mtexture->SetTextureFilename("../objects/bluwhite.png");
-                //mbody->AddAsset(mtexture);
-                std::shared_ptr<ChColorAsset> mvisual(new ChColorAsset);
-                mvisual->SetColor(ChColor(0.3f, 0.6f, 0.7f));
-                mbody->AddAsset(mvisual);
-                // Attach a custom asset. It will hold electrical properties
-                std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
-                electric_asset->e_fraction = ElectricParticleProperty::e_fraction_sphere;
-                electric_asset->e_material = ElectricParticleProperty::e_mat_plastic;
-                electric_asset->conductivity = 0;
-                electric_asset->birthdate = this->systemreference->GetChTime();
-                ChVector<> Cradii;  // use equivalent-inertia ellipsoid to get characteristic size:
-                ChVector<> Ine = mbody->GetInertiaXX();
-                Cradii.x = sqrt((5. / (2.*mbody->GetMass()))*(Ine.y + Ine.z - Ine.x));
-                Cradii.y = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.z - Ine.y));
-                Cradii.z = sqrt((5. / (2.*mbody->GetMass()))*(Ine.x + Ine.y - Ine.z));
-                electric_asset->Cdim = Cradii*2.;
-                mbody->AddAsset(electric_asset);
-
-                ++particlecounter;
-                mbody->SetIdentifier(particlecounter);
-            }
-            // here put custom data of the callback
-            ChSystem* systemreference;
-            int particlecounter;
-        };
-        auto callback_plastic = std::make_shared<MyCreator_plastic>();
-        callback_plastic->systemreference = &this->mphysicalSystem;
-        callback_plastic->particlecounter = 0;
-        mcreator_plastic->SetCallbackPostCreation(callback_plastic.get());
-
-
-        // Create a parent ChRandomShapeCreator that 'mixes' the two generators above,
-        // mixing them with a given percentual:
-        auto mcreatorTot = std::make_shared<ChRandomShapeCreatorFromFamilies>();
-        mcreatorTot->AddFamily(mcreator_metal, 0.4);	// 1st creator family, with percentual
-        mcreatorTot->AddFamily(mcreator_plastic, 0.4);	// 2nd creator family, with percentual
-        mcreatorTot->Setup();
-
-        // Finally, tell to the emitter that it must use the 'mixer' above:
-        emitter.SetParticleCreator(mcreatorTot);
-
-
-        // ---Initialize the randomizer for velocities, with statistical distribution
-
-        auto mvelo = std::make_shared<ChRandomParticleVelocityConstantDirection>();
-        mvelo->SetDirection(-VECT_Y);
-        mvelo->SetModulusDistribution(0.0);
-
-        emitter.SetParticleVelocity(mvelo);
-    }
 
 
 
@@ -1190,7 +1171,7 @@ public:
 
                 // Apply the forces caused by electrodes of the CES machine:
 
-                ces_forces.apply_forces(&mphysicalSystem,		// contains all bodies
+                apply_forces(&mphysicalSystem,		// contains all bodies
                     drum_csys,		 // pos and rotation of axis of drum (not rotating reference!)
                     drumspeed_radss, // speed of drum
                     totframes);
@@ -1269,7 +1250,7 @@ public:
                                     ElectricParticleProperty::fraction_type fraction_identifier = electricproperties->e_fraction; // id will be 0=box, 1=cylinder, 2=sphere, 3=hull, 4=shavings, etc. (see enum)
                                     ElectricParticleProperty::material_type material_identifier = electricproperties->e_material; // id will be 0=plastic, 1=metal, 2=others (see enum)
 
-                                    // Save on disk some infos...
+                                                                                                                                  // Save on disk some infos...
                                     file_for_output << abody->GetIdentifier() << ", "
                                         << fraction_identifier << ", "
                                         << abody->GetPos().x << ", "
@@ -1378,6 +1359,20 @@ public:
         return 0;
     }
 
+
+
+
+};
+
+
+
+
+
+
+
+
+class WasteSeparator
+{
 
 
 
