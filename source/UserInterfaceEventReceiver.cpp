@@ -22,7 +22,7 @@ UserInterfaceEventReceiver::UserInterfaceEventReceiver(ChIrrAppInterface* myapp,
 
 	// ..add a GUI slider to control particles flow
 	scrollbar_flow = application->GetIGUIEnvironment()->addScrollBar(
-					true, rect<s32>(560, 15, 700, 15+20), 0, 101);
+					true, rect<s32>(560, 15, 700, 15+20), nullptr, 101);
 	scrollbar_flow->setMax(100);
 	scrollbar_flow->setPos(((int)((mysimulator->emitter.ParticlesPerSecond()/1000.0 )*25)));
 	text_flow = application->GetIGUIEnvironment()->addStaticText(
@@ -30,9 +30,9 @@ UserInterfaceEventReceiver::UserInterfaceEventReceiver(ChIrrAppInterface* myapp,
 
 	// ..add GUI slider to control the speed
 	scrollbar_speed = application->GetIGUIEnvironment()->addScrollBar(
-					true, rect<s32>(560, 40, 700, 40+20), 0, 102);
+					true, rect<s32>(560, 40, 700, 40+20), nullptr, 102);
 	scrollbar_speed->setMax(100); 
-    scrollbar_speed->setPos(((int)((mysimulator->drumspeed_rpm/3.0 )*100)));
+    scrollbar_speed->setPos(simulator->GetDrumSpeed()/simulator->drumspeed_rpm_max);
 	text_speed = application->GetIGUIEnvironment()->addStaticText(
 					L"Conv.vel. [m/s]:", rect<s32>(710,40,800,40+20), false);
 
@@ -68,9 +68,9 @@ bool UserInterfaceEventReceiver::OnEvent(const SEvent& event)
 				if (id == 102) // id of 'speed' slider..
 				{
 					s32 pos = ((IGUIScrollBar*)event.GUIEvent.Caller)->getPos();
-					simulator->drumspeed_rpm = 3.0* (((double)pos)/100);
-					simulator->drumspeed_radss = simulator->drumspeed_rpm*((2.0*CH_C_PI)/60.0); //[rad/s]
-					char message[50]; sprintf(message,"Drum rpm %2.2f [m/s]", simulator->drumspeed_rpm);
+                    std::cout << pos << std::endl;
+                    simulator->SetDrumSpeed(pos * simulator->drumspeed_rpm_max);
+					char message[50]; sprintf(message,"Drum speed %2.2f [rpm]", simulator->drumspeed_rpm);
 					text_speed->setText(core::stringw(message).c_str());
 				}
 		break;

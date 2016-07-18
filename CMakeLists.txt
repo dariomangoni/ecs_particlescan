@@ -59,7 +59,7 @@ project(ecs_particlescan)
 #--------------------------------------------------------------
 
 find_package(Chrono
-             COMPONENTS Irrlicht
+             COMPONENTS Irrlicht postprocess
              CONFIG)
 
 #--------------------------------------------------------------

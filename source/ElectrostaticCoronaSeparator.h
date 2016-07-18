@@ -34,61 +34,17 @@
 using namespace chrono;
 using namespace particlefactory;
 
-double xnozzle = 0;
-double ynozzle = 0;
+
 
 
 /// Utility function that plots a matrix over a rectangle
 static void drawDistribution(irr::video::IVideoDriver* driver,
-    chrono::ChMatrix<>& Z, // distribution matrix
-    chrono::ChCoordsys<>& mpos, // center coordinates of the rectangle that measures flow
-    double x_size, double y_size, // size of the rectangle
-    irr::video::SColor mcol = irr::video::SColor(50, 80, 110, 110),
-    bool use_Zbuffer = false
-)
-{
-    driver->setTransform(irr::video::ETS_WORLD, irr::core::matrix4());
-    irr::video::SMaterial mattransp;
-    mattransp.ZBuffer = true;
-    mattransp.Lighting = false;
-    driver->setMaterial(mattransp);
-
-    chrono::ChVector<> V1a(-x_size*0.5, y_size*0.5, 0);
-    chrono::ChVector<> V2a(x_size*0.5, y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1a), mpos.TransformLocalToParent(V2a), mcol, use_Zbuffer);
-    chrono::ChVector<> V1b(-x_size*0.5, -y_size*0.5, 0);
-    chrono::ChVector<> V2b(x_size*0.5, -y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1b), mpos.TransformLocalToParent(V2b), mcol, use_Zbuffer);
-    chrono::ChVector<> V1c(x_size*0.5, y_size*0.5, 0);
-    chrono::ChVector<> V2c(x_size*0.5, -y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1c), mpos.TransformLocalToParent(V2c), mcol, use_Zbuffer);
-    chrono::ChVector<> V1d(-x_size*0.5, y_size*0.5, 0);
-    chrono::ChVector<> V2d(-x_size*0.5, -y_size*0.5, 0);
-    irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(V1d), mpos.TransformLocalToParent(V2d), mcol, use_Zbuffer);
-
-    for (int iy = 0; iy < Z.GetColumns(); ++iy)
-    {
-        double mystep = y_size / Z.GetColumns();
-        double my = -0.5*y_size + iy*mystep + 0.5*mystep;
-        for (int ix = 0; ix < Z.GetRows(); ++ix)
-        {
-            double mxstep = x_size / Z.GetRows();
-            double mx = -0.5*x_size + ix*mxstep + 0.5*mxstep;
-            if (ix >0)
-            {
-                chrono::ChVector<> Vx1(mx - mxstep, my, Z(ix - 1, iy));
-                chrono::ChVector<> Vx2(mx, my, Z(ix, iy));
-                irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(Vx1), mpos.TransformLocalToParent(Vx2), mcol, use_Zbuffer);
-            }
-            if (iy >0)
-            {
-                chrono::ChVector<> Vy1(mx, my - mystep, Z(ix, iy - 1));
-                chrono::ChVector<> Vy2(mx, my, Z(ix, iy));
-                irrlicht::ChIrrTools::drawSegment(driver, mpos.TransformLocalToParent(Vy1), mpos.TransformLocalToParent(Vy2), mcol, use_Zbuffer);
-            }
-        }
-    }
-}
+                             const ChMatrix<>& Z, // distribution matrix
+                             const ChCoordsys<>& mpos, // center coordinates of the rectangle that measures flow
+                             double x_size, double y_size, // size of the rectangle
+                             irr::video::SColor mcol = irr::video::SColor(50, 80, 110, 110),
+                             bool use_Zbuffer = false
+);
 
 class ElectrostaticCoronaSeparator 
 { 
@@ -107,27 +63,29 @@ public:
 	double U = -35000; // supplied high-voltage [v]
 	double L = 0.267; //certer distance of rotating roll electrode and electrostatic pole *****ida
 	double alpha = (CH_C_PI / 180) * 30; //angle of horizontal line and electrodes center line *****ida
-	double epsilon = 8.85941e-12; // dielectric constant [F/m] *****ida 
-	double epsilonO = 8.854187e-12; //vacuum permeability
-	double epsilonR = 2.5; //relative permeability
-	double eta = 0.0000181; // Air drag coefficent [N*s/m^2]
-	double ro = 1.225;  //fluid density (air) [Kg/m^3]
+	const double epsilon = 8.85941e-12; // dielectric constant [F/m] *****ida 
+	const double epsilonO = 8.854187e-12; //vacuum permeability
+	const double epsilonR = 2.5; //relative permeability
+	const double eta = 0.0000181; // Air drag coefficent [N*s/m^2]
+	const double ro = 1.225;  //fluid density (air) [Kg/m^3]
 
-
-    ChSystem mphysicalSystem;
 
     ChParticleEmitter emitter;
     std::shared_ptr<ChRandomParticlePositionRectangleOutlet> emitter_positions;
     std::shared_ptr<ChRandomParticleAlignment> emitter_rotations;
 
-    double drumspeed_rpm = 44.8; // [rpm]
-    double drumspeed_radss = drumspeed_rpm*((2.0*CH_C_PI) / 60.0); //[rad/s]
+    //double drumspeed_rpm = 44.8; // [rpm]
+    const double drumspeed_rpm_max = 100;
+    double drumspeed_rpm = 50; // [rpm]
+    double drumspeed_radss = drumspeed_rpm*(CH_C_2PI / 60.0); //[rad/s]
 
-                                                                   //sphrad = 0.38e-3;
-                                                                   //sphrad2 = 0.25e-3;
-                                                                   //sphrad3 = 0.794e-3;
+    std::shared_ptr<ChFunction_Const> drum_speed_function;
 
-                                                                   // material surfaces
+    //sphrad = 0.38e-3;
+    //sphrad2 = 0.25e-3;
+    //sphrad3 = 0.794e-3;
+
+    // material surfaces
     double surface_drum_friction = 0.5;
     double surface_drum_rolling_friction = 0.0;
     double surface_drum_spinning_friction = 0.0;
@@ -153,16 +111,25 @@ public:
     // Coordinate systems with position and rotation of important items in the 
     // separator.
 
-    double conv_thick = 0.01;
-    double conveyor_length = 0.6;
+    const double conveyor_thick = 0.01;
+    const double conveyor_length = 0.6;
 
-    ChCoordsys<> conveyor_csys{ 0, -conv_thick, 0 };
-    ChCoordsys<> drum_csys{ conveyor_length / 2, -(0.320*0.5) - conv_thick / 2,0 };
+    //ChCoordsys<> conveyor_csys{ 0, -conveyor_thick, 0 };
+    //ChCoordsys<> drum_csys{ conveyor_length / 2, -(0.320*0.5) - conveyor_thick / 2, 0 };
 
-    ChCoordsys<> nozzle_csys{ 0, 0.01, 0 };
-    ChCoordsys<> splitter1_csys{ conveyor_length / 2 + 0.2, -(0.320*0.5) - conv_thick / 2,0 };
-    ChCoordsys<> splitter2_csys{ conveyor_length / 2 + 0.4, -(0.320*0.5) - conv_thick / 2,0 };
-    ChCoordsys<> brush_csys{ conveyor_length / 2 - 0.10, -(0.320*0.5) - conv_thick / 2,0 };
+    //ChCoordsys<> nozzle_csys{ 0, 0.01, 0 };
+    //ChCoordsys<> splitter1_csys{ conveyor_length / 2 + 0.2, -(0.320*0.5) - conveyor_thick / 2,0 };
+    //ChCoordsys<> splitter2_csys{ conveyor_length / 2 + 0.4, -(0.320*0.5) - conveyor_thick / 2,0 };
+    //ChCoordsys<> brush_csys{ conveyor_length / 2 - 0.10, -(0.320*0.5) - conveyor_thick / 2,0 };
+
+
+    ChCoordsys<> conveyor_csys;
+    ChCoordsys<> drum_csys;
+
+    ChCoordsys<> nozzle_csys;
+    ChCoordsys<> splitter1_csys;
+    ChCoordsys<> splitter2_csys;
+    ChCoordsys<> brush_csys;
 
 
     // set as true for saving log files each n frames
@@ -171,11 +138,10 @@ public:
     bool save_POV_screenshots = false;
     int saveEachNframes = 3;
 
-    bool irr_cast_shadows = true;
+
     int totframes = 0;
     bool init_particle_speed = true;
-    double particle_magnification = 3; // for larger visualization of particle
-    std::string solidworks_py_modelfile = "../CAD_conveyor/conveyor_Ida"; // note! do not add ".py" after the filename
+    double particle_magnification = 5; // for larger visualization of particle
     std::string results_file = "output/results.txt";
     double timestep = 0.001;
     double Tmax = 5;
@@ -184,30 +150,24 @@ public:
     std::vector<std::shared_ptr<ChBody>> scanned_particles;
 
 
-
-
-
-
-
-
-    ElectrostaticCoronaSeparator();
+    ElectrostaticCoronaSeparator(ChSystem& mphysicalSystem);
 
 
     ///
 	/// Function that defines the forces on the debris ****ida
 	///
-    void apply_forces(ChSystem* msystem, // contains all bodies
-                      ChCoordsys<>& drum_csys, // pos and rotation of drum 
-                      double drumspeed, // speed of drum
-                      int totframes);
+    void apply_forces(ChSystem* msystem);
 
+    /// Acquire particles information based on text file given by the spectrophotometric camera.
+    bool AcquireParticleScan(const char* filename);
 
-    bool parse_particlescan(const char* filename);
-
-
+    /// Creates random bodies according to the last scan.
     void create_debris_particlescan(double dt, double particles_second,
                                     ChSystem& mysystem,
                                     irrlicht::ChIrrApp* irr_application);
+
+    template <typename asset_type>
+    bool get_asset(ChAssembly::IteratorBodies& body_iter, std::shared_ptr<asset_type>** desired_asset) const;
 
 
     void create_debris_particlescan_temp(double dt, double particles_second,
@@ -215,8 +175,7 @@ public:
                                          irrlicht::ChIrrApp* irr_application);
 
     /// Function that deletes old debris (to avoid infinite creation that fills memory)
-    void purge_debris(ChSystem& mysystem, double max_age = 5.0);
-
+    void purge_debris(ChSystem& mysystem, double max_age = 5.0) const;
 
     /// Function for drawing forces
     void DrawForces(irrlicht::ChIrrApp& application, double scalefactor = 1.0) const;
@@ -228,13 +187,26 @@ public:
     /// Function to draw trajectories. Must be
     /// called at each timestep
     void DrawTrajectories(irrlicht::ChIrrApp& application) const;
-    int Setup();
+
+    /// Add bodies belonging to ECS to the \c system and their visual assets to \c application
+    int Setup(ChSystem& system, irrlicht::ChIrrApp* application);
 
     /// Main function of the simulator.
     /// Initialize the simulation, and
     /// Performs the simulation
     /// by running the loop of time integration
-    int simulate();
+    int RunSimulation(irrlicht::ChIrrApp& application);
+
+
+    void SetDrumSpeed(double speed_rpm)
+    {
+        drumspeed_rpm = speed_rpm;
+        drumspeed_radss = drumspeed_rpm*CH_C_2PI / 60;
+    }
+    double GetDrumSpeed() const { return drumspeed_rpm; }
+
+
+
 };
 
 

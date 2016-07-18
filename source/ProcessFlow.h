@@ -1,7 +1,7 @@
 #ifndef PROCESSFLOW_H
 #define PROCESSFLOW_H
 
-#include "ElectricParticleProperty.h"
+#include "ElectricParticleAssets.h"
 #include "particlefactory/ChParticleProcessEvent.h"
 
 
@@ -37,14 +37,13 @@ public:
 		if (auto mrectangleprocessor = std::dynamic_pointer_cast<ChParticleEventFlowInRectangle>(mprocessor))
 		{
 			// compute the row and colum of the matrix
-
 			int irow = (int)floor(mmass_plastic.GetRows() * mrectangleprocessor->last_intersectionUV.x);
 			if (irow >= mmass_plastic.GetRows()) irow = mmass_plastic.GetRows()-1;
 			int icol = (int)floor(mmass_plastic.GetColumns() * mrectangleprocessor->last_intersectionUV.y);
 			if (icol >= mmass_plastic.GetColumns()) icol = mmass_plastic.GetColumns()-1;
 
 			// Fetch the ElectricParticleProperty asset from the list
-			for (unsigned int na= 0; na< mbody->GetAssets().size(); na++)
+			for (size_t na= 0; na< mbody->GetAssets().size(); na++)
 			{
 				std::shared_ptr<ChAsset> myasset = mbody->GetAssetN(na);
 				if (auto electricproperties = std::dynamic_pointer_cast<ElectricParticleProperty>(myasset))
