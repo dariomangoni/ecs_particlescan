@@ -42,19 +42,19 @@ public:
 			int icol = (int)floor(mmass_plastic.GetColumns() * mrectangleprocessor->last_intersectionUV.y);
 			if (icol >= mmass_plastic.GetColumns()) icol = mmass_plastic.GetColumns()-1;
 
-			// Fetch the ElectricParticleProperty asset from the list
+			// Fetch the ElectricParticleAsset asset from the list
 			for (size_t na= 0; na< mbody->GetAssets().size(); na++)
 			{
 				std::shared_ptr<ChAsset> myasset = mbody->GetAssetN(na);
-				if (auto electricproperties = std::dynamic_pointer_cast<ElectricParticleProperty>(myasset))
+				if (auto electricproperties = std::dynamic_pointer_cast<ElectricParticleAsset>(myasset))
 				{
 					// ok, its a particle!
 
-					if (electricproperties->e_material == ElectricParticleProperty::e_mat_plastic)
+					if (electricproperties->GetMaterial() == ElectricParticleAsset::material_type::e_mat_plastic)
 					{
 						this->mmass_plastic(irow,icol) += mbody->GetMass();
 					}
-					if (electricproperties->e_material == ElectricParticleProperty::e_mat_metal)
+					if (electricproperties->GetMaterial() == ElectricParticleAsset::material_type::e_mat_metal)
 					{
 						this->mmass_metal(irow,icol) += mbody->GetMass();
 					}

@@ -1,4 +1,5 @@
 #include "ElectrostaticCoronaSeparator.h"
+#include <typeinfo>
 
 void drawDistribution(irr::video::IVideoDriver* driver, const ChMatrix<>& Z, const ChCoordsys<>& mpos, double x_size, double y_size, irr::video::SColor mcol, bool use_Zbuffer)
 {
@@ -61,12 +62,13 @@ ElectrostaticCoronaSeparator::ElectrostaticCoronaSeparator(ChSystem& mphysicalSy
     //***ALEX disabled because initialized by SolidWorks file, anyway
     //double conveyor_thick = 0.01;
     //double conveyor_length = 0.6;
-    conveyor_csys	= ChCoordsys<>( ChVector<>(0, -conveyor_thick, 0), ChQuaternion<>(sin(CH_C_PI_2), 0, cos(CH_C_PI_2), 0)) ; // default position
-    drum_csys		= ChCoordsys<>( ChVector<>(conveyor_length/2, -(drum_diameter*0.5)-conveyor_thick/2,0), ChQuaternion<>(sin(CH_C_PI_2),0, cos(CH_C_PI_2),0) );  // default position
-    nozzle_csys		= ChCoordsys<>( ChVector<>(0, 0.01, 0) ); // default position
-    splitter1_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.2, -(drum_diameter*0.5)-conveyor_thick/2,0) );  // default position
-    splitter2_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.4, -(drum_diameter*0.5)-conveyor_thick/2,0) );  // default position
-    brush_csys	    = ChCoordsys<>( ChVector<>(conveyor_length/2-0.10, -(drum_diameter*0.5)-conveyor_thick/2,0) );  // default position
+
+    //conveyor_csys	= ChCoordsys<>( ChVector<>(0, -conveyor_thick, 0)) ; // default position
+    //drum_csys		= ChCoordsys<>( ChVector<>(conveyor_length/2, -(drum_diameter*0.5)-conveyor_thick/2,0), ChQuaternion<>(sin(CH_C_PI_2),0, cos(CH_C_PI_2),0) );  // default position
+    //nozzle_csys		= ChCoordsys<>( ChVector<>(0, 0.01, 0) ); // default position
+    //splitter1_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.2, -(drum_diameter*0.5)-conveyor_thick/2,0) );  // default position
+    //splitter2_csys	= ChCoordsys<>( ChVector<>(conveyor_length/2+0.4, -(drum_diameter*0.5)-conveyor_thick/2,0) );  // default position
+    //brush_csys	    = ChCoordsys<>( ChVector<>(conveyor_length/2-0.10, -(drum_diameter*0.5)-conveyor_thick/2,0) );  // default position
     
 
 
@@ -122,10 +124,9 @@ ElectrostaticCoronaSeparator::ElectrostaticCoronaSeparator(ChSystem& mphysicalSy
             mvisual->SetColor(ChColor(0.9f, 0.4f, 0.2f));
             mbody->AddAsset(mvisual);
             // Attach a custom asset. It will hold electrical properties
-            std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
-            electric_asset->e_fraction = ElectricParticleProperty::e_fraction_sphere;
-            electric_asset->e_material = ElectricParticleProperty::e_mat_metal;
-            electric_asset->conductivity = 58000000;
+            std::shared_ptr<ElectricParticleAsset> electric_asset(new ElectricParticleAsset);
+            electric_asset->e_fraction = ElectricParticleAsset::fraction_type::e_fraction_sphere;
+            electric_asset->SetMaterial(ElectricParticleAsset::material_type::e_mat_metal);
             electric_asset->birthdate = this->systemreference->GetChTime();
             ChVector<> Cradii; // use equivalent-inertia ellipsoid to get characteristic size:
             ChVector<> Ine = mbody->GetInertiaXX();
@@ -168,10 +169,9 @@ ElectrostaticCoronaSeparator::ElectrostaticCoronaSeparator(ChSystem& mphysicalSy
             mvisual->SetColor(ChColor(0.3f, 0.6f, 0.7f));
             mbody->AddAsset(mvisual);
             // Attach a custom asset. It will hold electrical properties
-            std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
-            electric_asset->e_fraction = ElectricParticleProperty::e_fraction_sphere;
-            electric_asset->e_material = ElectricParticleProperty::e_mat_plastic;
-            electric_asset->conductivity = 0;
+            std::shared_ptr<ElectricParticleAsset> electric_asset(new ElectricParticleAsset);
+            electric_asset->e_fraction = ElectricParticleAsset::fraction_type::e_fraction_sphere;
+            electric_asset->SetMaterial(ElectricParticleAsset::material_type::e_mat_plastic);
             electric_asset->birthdate = this->systemreference->GetChTime();
             ChVector<> Cradii; // use equivalent-inertia ellipsoid to get characteristic size:
             ChVector<> Ine = mbody->GetInertiaXX();
@@ -226,79 +226,61 @@ void ElectrostaticCoronaSeparator::apply_forces(ChSystem* msystem)
     // Loop on all bodies:
     for (auto body_iter = msystem->IterBeginBodies(); body_iter != msystem->IterEndBodies(); ++body_iter)
     {
-
-        bool was_a_particle = false;
-        std::shared_ptr<ElectricParticleProperty> electricproperties; // null by default
-
-        // Fetch the ElectricParticleProperty asset from the list of 
-        // assets that have been attached to the object, and retrieve the
-        // custom data that have been stored. ***ALEX
-        for (auto asset_iter = (*body_iter)->GetAssets().begin(); asset_iter != (*body_iter)->GetAssets().end(); ++asset_iter)
+        // Do the computation of forces only on bodies that had the 'ElectricParticleAsset' attached
+        std::shared_ptr<ElectricParticleAsset> electric_asset;
+        if (!GetAsset(*body_iter,electric_asset))
         {
-            if (auto myassetelectric = std::dynamic_pointer_cast<ElectricParticleProperty>(*asset_iter))
-            {
-                // OK! THIS WAS A PARTICLE! ***ALEX
-                was_a_particle = true;
-                electricproperties = myassetelectric;
-                break;
-            }
+            continue;
         }
 
-        if (!was_a_particle)
-            continue;
-
-    // Do the computation of forces only on bodies that had 
-    // the 'ElectricParticleProperty' attached.. **ALEX
-
-        ChVector<> diam = electricproperties->Cdim;
-        double sigma = electricproperties->conductivity;
+        //ChVector<> diam = electric_asset->Cdim;
+        //double sigma = electric_asset->conductivity;
 
         // Remember to reset 'user forces accumulators':
         (*body_iter)->Empty_forces_accumulators();
 
         // initialize speed of air (steady, if outside fan stream): 
-        ChVector<> abs_wind(0, 0, 0);
+        //ChVector<> abs_wind(0, 0, 0);
 
         // calculate the position of body COG with respect to the drum COG:
+        // TODO: adapt the notation
+        //ChVector<> mrelpos = drum_csys.TransformParentToLocal((*body_iter)->GetPos());
         ChVector<> mrelpos = drum_csys.TransformParentToLocal((*body_iter)->GetPos());
         double distx = mrelpos.x;
         double disty = mrelpos.y;
         ChVector<> velocity = (*body_iter)->GetPos_dt();
-        double velocityx = velocity.x;
-        double velocityy = velocity.y;
-        double velocityz = velocity.z;
-        //ChVector <> rot_speed=abody->GetWvel_par();
-        //double rot_speedz=rot_speed.z; //bisogna tirare fuori la componente attorno all'asse z globale della velocità di rotazione
 
-        double velocity_norm_sq = velocity.Length2();
+        //// UNUSED variables
+        //double velocityx = velocity.x;
+        //double velocityy = velocity.y;
+        //double velocityz = velocity.z;
 
-        //ChQuaternion<> rot_velocity=abody->GetRot_dt;
+        //double velocity_norm_sq = velocity.Length2();
+        ////ChQuaternion<> rot_velocity=abody->GetRot_dt;
 
-        // Polar coordinates of particles respect to the axis of the rotor, may be useful later **ALEX
-
-        double distance = pow(distx * distx + disty * disty, 0.5);
-        double phi = atan2(disty, distx);
-        double phi2 = atan2(-velocity.y, velocity.x);
+        //// Polar coordinates of particles respect to the axis of the rotor, may be useful later **ALEX
+        //double distance = pow(distx * distx + disty * disty, 0.5);
+        //double phi = atan2(disty, distx);
+        //double phi2 = atan2(-velocity.y, velocity.x);
 
 
         //
         // STOKES FORCES
         //
 
-
-        double average_rad = 0.5 * electricproperties->Cdim.Length(); // Approximate to sphere radius. Ida: this can be improved, by having Stokes forces for three Cdim x y z values maybe 
-        ChVector<> StokesForce = electricproperties->StokesForce;
-        electricproperties->StokesForce = (-6 * CH_C_PI * eta * average_rad) * velocity;
+        // Approximate to sphere radius. Ida: this can be improved, by having Stokes forces for three Cdim x y z values maybe
+        double average_rad = 0.5 * electric_asset->Cdim.Length(); 
+        ChVector<> StokesForce = electric_asset->StokesForce;
+        electric_asset->StokesForce = (-6 * CH_C_PI * eta * average_rad) * velocity;
         (*body_iter)->Accumulate_force(StokesForce, (*body_iter)->GetPos(), false);
 
 
-        //Calculating the analytical expressions of the electric field***ida
+        // Electric field
+        double x_1 = distx * cos(alpha) + disty * sin(alpha);
+        double y_1 = disty * cos(alpha) - distx * sin(alpha);
 
-        double xuno = distx * cos(alpha) + disty * sin(alpha);//analytical parameter****ida
-        double yuno = disty * cos(alpha) - distx * sin(alpha);//analytical parameter****ida
-
-        double Ex = (((j - h1 + xuno) / (pow((j - h1 + xuno), 2) + pow(yuno, 2)) + ((j + h1 - xuno) / (pow((j + h1 - xuno), 2) + pow(yuno, 2))) * f));//analytical expression of the electric field x direction***ida
-        double Ey = ((yuno / (pow((j - h1 + xuno), 2) + pow(yuno, 2)) - (yuno / (pow((j + h1 - xuno), 2) + pow(yuno, 2))) * f));//analytical expression of the electric field y direction***ida
+        double Ex = (((j - h1 + x_1) / (pow((j - h1 + x_1), 2) + pow(y_1, 2)) + ((j + h1 - x_1) / (pow((j + h1 - x_1), 2) + pow(y_1, 2))) * f));
+        double Ey = ((y_1 / (pow((j - h1 + x_1), 2) + pow(y_1, 2)) - (y_1 / (pow((j + h1 - x_1), 2) + pow(y_1, 2))) * f));
         double Ez = 0;
 
         ChVector<> vE(Ex, Ey, Ez);
@@ -306,73 +288,82 @@ void ElectrostaticCoronaSeparator::apply_forces(ChSystem* msystem)
         double Emax = -11.818 * U - 514.87;
 
 
-        //
-        //===== METAL FORCES ==========
-        //
-
-        if (electricproperties->e_material == ElectricParticleProperty::e_mat_metal)
+        // Compute forces based on material type
+        switch (electric_asset->GetMaterial())
         {
-            // charge the particle? (contact w. drum)
-            if ((distx > 0) && (disty > 0))
+        case ElectricParticleAsset::material_type::e_mat_copper:
+        case ElectricParticleAsset::material_type::e_mat_metal:
             {
-                if (electricproperties->chargeM == 0)
+                // charge the particle? (contact w. drum)
+                if ((distx > 0) && (disty > 0))
                 {
-                    electricproperties->chargeM = (2. / 3.) * pow(CH_C_PI, 3) * epsilon * pow(average_rad, 2) * E;
-                    electricproperties->chargeM *= (1.0 - 0.3 * ChRandom());
+                    if (electric_asset->chargeM == 0)
+                    {
+                        electric_asset->chargeM = (2. / 3.) * pow(CH_C_PI, 3) * epsilon * pow(average_rad, 2) * E;
+                        electric_asset->chargeM *= (1.0 - 0.3 * ChRandom());
+                    }
                 }
+
+
+                ChVector<> ElectricForce = electric_asset->ElectricForce;
+
+                electric_asset->ElectricForce = 0.832 * electric_asset->chargeM * vE;
+                //GetLog() << "ElectricForce" << ElectricForce << "\n";
+                // switch off electric forces if too out-of-plane
+                if ((mrelpos.z > drum_width * 0.5) || (mrelpos.z < -drum_width * 0.5))
+                    ElectricForce = 0;
+
+                (*body_iter)->Accumulate_force(ElectricForce, (*body_iter)->GetPos(), false);
             }
+                break;
+
+        case ElectricParticleAsset::material_type::e_mat_pcb6:
+        case ElectricParticleAsset::material_type::e_mat_pcb7:
+        case ElectricParticleAsset::material_type::e_mat_pcb8:
+        case ElectricParticleAsset::material_type::e_mat_pcb9:
+        case ElectricParticleAsset::material_type::e_mat_pcb10:
+        case ElectricParticleAsset::material_type::e_mat_plastic:
+            {
+                // charge the particle? (contact w. drum)
+                if ((distx > 0.04) && (disty > 0))
+                {
+                    if (electric_asset->chargeP == 0)
+                    {
+                        electric_asset->chargeP = 3 * CH_C_PI * epsilonO * pow(2 * average_rad, 2) * Emax * (epsilonR / (epsilonR + 2)); // charge
+                        electric_asset->chargeP *= (1.0 - 0.3 * ChRandom());
+                    }
+                } //15000000,750000,450000
+                  // discharge the particle? (contact w. blade)
+                if (distx < -(drum_diameter * 0.5 - 0.009) && (disty > -(drum_diameter * 0.5 + 0.009)) || sqrt(pow(distx, 2) + pow(disty, 2)) > (1.03 * drum_diameter * 0.5))
+                {
+                    electric_asset->chargeP = 0; // charge
+                }
+
+                ChVector<> ElectricImageForce = electric_asset->ElectricImageForce;
 
 
-            ChVector<> ElectricForce = electricproperties->ElectricForce;
+                electric_asset->ElectricImageForce.x = -((pow(electric_asset->chargeP, 2)) / (4 * CH_C_PI * epsilon * pow((2 * average_rad), 2)) * cos(atan2(disty, distx)));
+                electric_asset->ElectricImageForce.y = -((pow(electric_asset->chargeP, 2)) / (4 * CH_C_PI * epsilon * pow((2 * average_rad), 2)) * sin(atan2(disty, distx)));
+                electric_asset->ElectricImageForce.z = 0;
 
-            electricproperties->ElectricForce = 0.832 * electricproperties->chargeM * vE;
-            //GetLog() << "ElectricForce" << ElectricForce << "\n";
-            // switch off electric forces if too out-of-plane
-            if ((mrelpos.z > drum_width * 0.5) || (mrelpos.z < -drum_width * 0.5))
-                ElectricForce = 0;
 
-            (*body_iter)->Accumulate_force(ElectricForce, (*body_iter)->GetPos(), false);
-        } // end if material==metal
+                // switch off electric forces if too out-of-plane
+                if ((mrelpos.z > drum_width * 0.5) || (mrelpos.z < -drum_width * 0.5))
+                    ElectricImageForce = 0;
 
+
+                (*body_iter)->Accumulate_force(ElectricImageForce, (*body_iter)->GetPos(), false);
+            }
+                break;
+
+            default:
+
+                break;
+        }
 
         //
-        //===== PLASTIC FORCES ==========
+        // AERODYNAMIC FORCES
         //
-
-
-        if (electricproperties->e_material == ElectricParticleProperty::e_mat_plastic) //forze sulle particelle non metalliche
-        {
-            // charge the particle? (contact w. drum)
-            if ((distx > 0.04) && (disty > 0))
-            {
-                if (electricproperties->chargeP == 0)
-                {
-                    electricproperties->chargeP = 3 * CH_C_PI * epsilonO * pow(2 * average_rad, 2) * Emax * (epsilonR / (epsilonR + 2)); // charge
-                    electricproperties->chargeP *= (1.0 - 0.3 * ChRandom());
-                }
-            } //15000000,750000,450000
-            // discharge the particle? (contact w. blade)
-            if (distx < -(drum_diameter * 0.5 - 0.009) && (disty > -(drum_diameter * 0.5 + 0.009)) || sqrt(pow(distx, 2) + pow(disty, 2)) > (1.03 * drum_diameter * 0.5))
-            {
-                electricproperties->chargeP = 0; // charge
-            }
-
-            ChVector<> ElectricImageForce = electricproperties->ElectricImageForce;
-
-
-            electricproperties->ElectricImageForce.x = -((pow(electricproperties->chargeP, 2)) / (4 * CH_C_PI * epsilon * pow((2 * average_rad), 2)) * cos(atan2(disty, distx)));
-            electricproperties->ElectricImageForce.y = -((pow(electricproperties->chargeP, 2)) / (4 * CH_C_PI * epsilon * pow((2 * average_rad), 2)) * sin(atan2(disty, distx)));
-            electricproperties->ElectricImageForce.z = 0;
-
-
-            // switch off electric forces if too out-of-plane
-            if ((mrelpos.z > drum_width * 0.5) || (mrelpos.z < -drum_width * 0.5))
-                ElectricImageForce = 0;
-
-
-            (*body_iter)->Accumulate_force(ElectricImageForce, (*body_iter)->GetPos(), false);
-        } // end if material==plastic
-
 
         //ChVector<> DragForce;
         //DragForce.x = -CD*ro*velocity_norm_sq*CH_C_PI*diam.x*diam.y/2*cos(phi2);
@@ -394,9 +385,9 @@ void ElectrostaticCoronaSeparator::apply_forces(ChSystem* msystem)
 
 /// It creates a list of particles with properties given by the \c filename content;
 /// \c filename should have the informations needed stored in this order:
-/// material_ID, particleID, thickness, mass, Main inertias {x3}, number of convex hull points, [convex hull coordinate x, convex hull coordinate x] {x number of convex hull points}
+/// material_ID, particleID, thickness, mass, main inertias {x3}, number of convex hull points, x coordinates of convex hull points, y coordinates of convex hull points
 /// The units are [mm], [mm^2], [mm^2 mg]
-bool ElectrostaticCoronaSeparator::AcquireParticleScan(const char* filename)
+bool ElectrostaticCoronaSeparator::LoadParticleScan(const char* filename)
 {
     std::ifstream particlefile;
     particlefile.open(filename, std::ifstream::in);
@@ -434,23 +425,14 @@ bool ElectrostaticCoronaSeparator::AcquireParticleScan(const char* filename)
             getline(iss, field, ',');
             static_cast<std::stringstream>(field) >> convex_hull_Npoint;
 
-            
-
             convex_hull_points.resize(2*convex_hull_Npoint);
 
-            // Unit conversion
+            // unit conversion
             particle_mass *= 1e-6;
             thickness *= 1e-3;
             I1 *= 1e-12;
             I2 *= 1e-12;
             I3 *= 1e-12;
-
-            //std::cout << std::endl;
-            //std::cout << "ParticleID: " << particle_ID << std::endl;
-            //std::cout << "MaterialID: " << mat_ID << std::endl;
-            //std::cout << "Thickness: " << thickness << std::endl;
-            //std::cout << "Mass: " << particle_mass << std::endl;
-            //std::cout << "Inertia " << I1 << ", " << I2 << ", " << I3 << ", " << std::endl;
 
             // acquire x coordinates of convex hull vertices and give thickness to the body
             for (auto convex_hull_point_sel = 0; convex_hull_point_sel < convex_hull_Npoint; ++convex_hull_point_sel)
@@ -473,22 +455,20 @@ bool ElectrostaticCoronaSeparator::AcquireParticleScan(const char* filename)
                 static_cast<std::stringstream>(field) >> convex_hull_points[convex_hull_point_sel](2);
                 convex_hull_points[convex_hull_point_sel](2) /= 1000;
 
-                // the points are given on a flat surface (2D); they will be duplicated and shifted by 'thickness' in order to give thick objects
                 convex_hull_points[convex_hull_point_sel + convex_hull_Npoint](2) = convex_hull_points[convex_hull_point_sel](2);
             }
 
-            ChBodyEasyConvexHull convex_hull_temp(convex_hull_points,1,true,true); // density will be set by 
-            //convex_hull_temp.SetInertia(); //TODO: SET INERTIA
-            
-            auto elec_property = std::make_shared<ElectricParticleProperty>();
-            convex_hull_temp.AddAsset(elec_property);
-            elec_property->SetMaterial(static_cast<ElectricParticleProperty::material_type>(mat_ID), &convex_hull_temp); //TODO: check if it works.. anyway it has to be changed
+            // create the electric asset
+            auto basic_elec_asset = std::make_shared<ElectricParticleAsset>(getElectricParticleProperty_material_type(mat_ID));
+            basic_elec_asset->particleID = particle_ID;
 
-            auto mvisual = std::make_shared<ChColorAsset>();
-            mvisual->SetColor(ChColor(0.9f, 0.4f, 0.2f));
-            convex_hull_temp.AddAsset(mvisual);
+            // create body
+            auto convex_hull_temp = std::make_shared<ChBodyEasyConvexHull>(convex_hull_points, basic_elec_asset->GetDensity(), true, true);
+            convex_hull_temp->SetInertiaXX(ChVector<>(I1, I2, I3));
+            convex_hull_temp->AddAsset(basic_elec_asset);
 
-            scanned_particles.emplace_back(std::make_shared<ChBodyEasyConvexHull>(convex_hull_temp)); //TODO: it must copy it...
+
+            scanned_particles.push_back(convex_hull_temp);
 
 
         }
@@ -509,41 +489,57 @@ void ElectrostaticCoronaSeparator::create_debris_particlescan(double dt, double 
     mmaterial->SetFriction(0.4f);
     //mmaterial->SetImpactC(0.0f);
 
-    double xnozzle = 0;
-    double ynozzle = 0;
+    double xnozzle = -conveyor_length*0.1;
+    double ynozzle = drum_diameter;
 
+    //TODO: is it so critical the number of particles that has to be set with this bizarre method?
     double exact_particles_dt = dt * particles_second;
     double particles_dt = floor(exact_particles_dt);
     double remaind = exact_particles_dt - particles_dt;
-
     if (remaind > ChRandom()) particles_dt += 1;
 
-    for (int i = 0; i < particles_dt; i++)
+    // the routine creates clones of the particles whose informations are acquired by the particle scan
+    for (auto i = 0; i < particles_dt; i++)
     {
-
+        // Choose a particle to be cloned
+        // the copy constructor of ChBody:
+        // - copies all the member variables
+        // - DOES share the assets
+        // - does NOT copy or share the collision model
         int selected_particle = floor(ChRandom() * scanned_particles.size());
-        auto mrigidBody = std::make_shared<ChBody> (*scanned_particles[selected_particle]); // TODO: must invoke copy constructor!!!
-        
-        for (auto asset_iter = mrigidBody->GetAssets().begin(); asset_iter != mrigidBody->GetAssets().end(); ++asset_iter)
+        auto mrigidBody = std::make_shared<ChBody>(*scanned_particles[selected_particle]); // member variables copied
+        mrigidBody->GetCollisionModel()->AddCopyOfAnotherModel(scanned_particles[selected_particle]->GetCollisionModel()); // collision model shared
+
+        // the new body currently SHARES the assets with the 'master' particle
+        std::shared_ptr<ElectricParticleAsset> elec_asset_old;
+        GetAsset(mrigidBody, elec_asset_old); // the pointer still points to the same asset of the master particle
+        auto elec_asset = std::make_shared<ElectricParticleAsset>(*elec_asset_old);
+        elec_asset->UpdateCharacteristicSize(*mrigidBody);
+        for (auto iter = mrigidBody->GetAssets().begin(); iter!=mrigidBody->GetAssets().end(); ++iter)
         {
-            if (auto iter2 = std::dynamic_pointer_cast<ElectricParticleProperty>(*asset_iter))
+            if (std::dynamic_pointer_cast<ElectricParticleAsset>(*iter))
             {
-                iter2->birthdate = mysystem.GetChTime();
+                iter = mrigidBody->GetAssets().erase(iter);
+                if (iter == mrigidBody->GetAssets().end())
+                    break;
             }
         }
-            
-        
+        mrigidBody->AddAsset(elec_asset);
 
+        // add visual asset
+        mrigidBody->AddAsset(elec_asset->GetDefaultColorAsset()); //share the default asset with all the bodies of the same material
+
+        // create trajectory asset
+        auto traj_asset = std::make_shared<ParticleTrajectory>();
+        mrigidBody->AddAsset(traj_asset);
+
+        
+        elec_asset->birthdate = mysystem.GetChTime();
+        
         mrigidBody->SetPos(ChVector<>((ChRandom()-0.5) * xnozzlesize + xnozzle, ynozzle + i * 0.005, (ChRandom()-0.5) * znozzlesize));
         mrigidBody->SetMaterialSurface(mmaterial);
 
-
-        // collision shape already defined
-
-        // visualization shape asset already defined
-
-        // Finally, do not forget to add the body to the system:
-        mysystem.Add(mrigidBody);
+        mysystem.AddBody(mrigidBody);
 
         // If Irrlicht is used, setup also the visualization proxy:
         if (irr_application)
@@ -576,15 +572,58 @@ void ElectrostaticCoronaSeparator::create_debris_particlescan(double dt, double 
 }
 
 
-template <typename asset_type>
-bool ElectrostaticCoronaSeparator::get_asset(ChAssembly::IteratorBodies& body_iter, std::shared_ptr<asset_type>** desired_asset) const
+void ElectrostaticCoronaSeparator::create_debris_particlescan_original(double dt, double particles_second, ChSystem& mysystem, irrlicht::ChIrrApp* irr_application)
 {
-    for (auto asset_iter = (*body_iter)->GetAssets().begin(); asset_iter != (*body_iter)->GetAssets().end(); ++asset_iter)
+    assert(scanned_particles.size() > 0);
+    auto mmaterial = std::make_shared<ChMaterialSurface>();
+    mmaterial->SetFriction(0.4f);
+    //mmaterial->SetImpactC(0.0f);
+
+    double xnozzle = -conveyor_length*0.5;
+    double ynozzle = drum_diameter;
+
+
+    for (auto body_iter = scanned_particles.begin(); body_iter != scanned_particles.end(); ++body_iter)
+    {
+        auto elec_asset = std::shared_ptr<ElectricParticleAsset>();
+        GetAsset(*body_iter, elec_asset);
+        elec_asset->birthdate = mysystem.GetChTime();
+
+        (*body_iter)->SetPos(ChVector<>((ChRandom() - 0.5) * xnozzlesize + xnozzle, ynozzle, (ChRandom() - 0.5) * znozzlesize));
+        (*body_iter)->SetMaterialSurface(mmaterial);
+
+        mysystem.AddBody((*body_iter));
+
+        // If Irrlicht is used, setup also the visualization proxy:
+        if (irr_application)
+        {
+            irr_application->AssetBind((*body_iter));
+            irr_application->AssetUpdate((*body_iter));
+        }
+
+        bool do_velocity_clamping = true;
+
+        if ((*body_iter) && do_velocity_clamping)
+        {
+            (*body_iter)->SetLimitSpeed(true);
+            (*body_iter)->SetMaxSpeed(100);
+            (*body_iter)->SetMaxWvel(250);
+        }
+
+    }
+
+}
+
+
+template <typename asset_type = ElectricParticleAsset>
+bool GetAsset(const std::shared_ptr<ChBody>& body, std::shared_ptr<asset_type>& desired_asset)
+{
+    for (auto asset_iter = body->GetAssets().begin(); asset_iter != body->GetAssets().end(); ++asset_iter)
     {
         auto desired_asset_ptr = std::dynamic_pointer_cast<asset_type>(*asset_iter);
         if (desired_asset_ptr)
         {
-            *desired_asset = &desired_asset_ptr;
+            desired_asset = desired_asset_ptr;
             return true;
         }
     }
@@ -592,337 +631,95 @@ bool ElectrostaticCoronaSeparator::get_asset(ChAssembly::IteratorBodies& body_it
 }
 
 
-template <>
-bool ElectrostaticCoronaSeparator::get_asset(ChAssembly::IteratorBodies& body_iter, std::shared_ptr<ElectricParticleProperty>** desired_asset) const
+void ElectrostaticCoronaSeparator::purge_debris_byage(ChSystem& mysystem, double max_age)
 {
-    for (auto asset_iter = (*body_iter)->GetAssets().begin(); asset_iter != (*body_iter)->GetAssets().end(); ++asset_iter)
+    for (auto body_sel = 0; body_sel < mysystem.Get_bodylist()->size(); ++body_sel)
     {
-        auto desired_asset_ptr = std::dynamic_pointer_cast<ElectricParticleProperty>(*asset_iter);
-        if (desired_asset_ptr)
+        auto body = (*mysystem.Get_bodylist())[body_sel];
+        std::shared_ptr<ElectricParticleAsset> elec_ass;
+        if (GetAsset(body, elec_ass))
         {
-            *desired_asset = &desired_asset_ptr;
-            return true;
-        }
-    }
-    return false;
-}
-
-
-
-void ElectrostaticCoronaSeparator::create_debris_particlescan_temp(double dt, double particles_second, ChSystem& mysystem, irrlicht::ChIrrApp* irr_application)
-{
-    double sph_fraction = 0;//0.3; // 30% cubes
-    double box_fraction = 0;//0.4; // 40% cylinders
-    double cyl_fraction = 1 - box_fraction - sph_fraction;
-
-    double xnozzle = 0;
-    double ynozzle = 0;
-
-    double density = 1820;
-    double sphrad = 0.01;
-    double cylhei = 0.035;
-    double cylmass = 0.0095; //CH_C_PI*pow(sphrad,2)*cylhei*density;
-    double sphmass = 0.0095;//1.3333*CH_C_PI*pow(sphrad,3)*density;
-    double sphinertia = 0.4 * pow(sphrad, 2) * sphmass;
-    double cylinertia = 0.0833 * (pow(cylhei, 2) + 3 * pow(sphrad, 2)) * cylmass;//0.0833*(pow(cylhei,2)+3*pow(sphrad,2))*cylmass;
-    double cylinertia2 = 0.5 * pow(sphrad, 2) * cylmass; //0.5*pow(sphrad,2)*cylmass;
-
-    float conductivity;
-
-    double exact_particles_dt = dt * particles_second;
-    double particles_dt = floor(exact_particles_dt);
-    double remaind = exact_particles_dt - particles_dt;
-
-    if (remaind > ChRandom()) particles_dt += 1;
-
-    for (int i = 0; i < particles_dt; i++)
-    {
-        std::shared_ptr<ChBody> created_body;
-
-        double rand_fract = ChRandom();
-        double rand_mat = ChRandom();
-        double plastic_fract = 0.3;
-        if (rand_mat < plastic_fract)
-        {
-            conductivity = 0;
-        }
-        else
-        {
-            conductivity = 6670000;
-        }
-
-        if (rand_fract < sph_fraction)
-        {
-            auto mmaterial = std::make_shared<ChMaterialSurface>();
-            mmaterial->SetFriction(0.2f);
-            //mmaterial->SetDampingF(0.2f);
-            //mmaterial->SetImpactC(0.8f);
-
-            // Create a body
-            std::shared_ptr<ChBody> mrigidBody;
-
-            mrigidBody->SetPos(ChVector<>(-0.5 * xnozzlesize + ChRandom() * xnozzlesize + xnozzle, conveyor_thick / 2 + sphrad, -0.5 * znozzlesize + ChRandom() * znozzlesize));
-            mrigidBody->SetMass(sphmass);
-            mrigidBody->SetInertiaXX(ChVector<>(sphinertia, sphinertia, sphinertia));
-            mrigidBody->SetMaterialSurface(mmaterial);
-            //mrigidBody->GetCollisionModel()->SetFamily(5);
-            //mrigidBody->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(3);
-
-            // Define a collision shape 
-            mrigidBody->GetCollisionModel()->ClearModel();
-            mrigidBody->GetCollisionModel()->AddSphere(sphrad);
-            mrigidBody->GetCollisionModel()->BuildModel();
-            mrigidBody->SetCollide(true);
-
-            // Attach a visualization shape asset. 
-            auto msphere = std::make_shared<ChSphereShape>();
-            msphere->GetSphereGeometry().rad = sphrad;
-            msphere->GetSphereGeometry().center = ChVector<>(0, 0, 0);
-            mrigidBody->AddAsset(msphere);
-            // Attach a visualization texture
-            std::shared_ptr<ChTexture> mtexture(new ChTexture);
-            mtexture->SetTextureFilename("../objects/bluwhite.png");
-            mrigidBody->AddAsset(mtexture);
-
-            // Attach a custom asset. Look how to create and add a custom asset to the object! ***ALEX
-            std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
-            electric_asset->Cdim = ChVector<>(2 * sphrad, 2 * sphrad, 2 * sphrad);
-            electric_asset->conductivity = conductivity;
-            electric_asset->e_fraction = ElectricParticleProperty::e_fraction_sphere;
-            electric_asset->birthdate = mysystem.GetChTime();
-            mrigidBody->AddAsset(electric_asset);
-
-            // Finally, do not forget to add the body to the system:
-            mysystem.Add(mrigidBody);
-
-            // If Irrlicht is used, setup also the visualization proxy:
-            if (irr_application)
-            {
-                irr_application->AssetBind(mrigidBody);
-                irr_application->AssetUpdate(mrigidBody);
-            }
-            created_body = mrigidBody;
-        }
-
-        if ((rand_fract > sph_fraction) &&
-            (rand_fract < box_fraction + sph_fraction))
-        {
-            double xscale = 1.3 * (1 - 0.8 * ChRandom()); // for oddly-shaped boxes..
-            double yscale = 1.3 * (1 - 0.8 * ChRandom());
-            double zscale = 1.3 * (1 - 0.8 * ChRandom());
-
-            //	ChCollisionModel::SetDefaultSuggestedEnvelope(0.002);
-            //	ChCollisionModel::SetDefaultSuggestedMargin  (0.002);
-
-            auto mmaterial = std::make_shared<ChMaterialSurface>();
-            mmaterial->SetFriction(0.4f);
-            //mmaterial->SetImpactC(0.0f);
-
-            // Create a body
-            std::shared_ptr<ChBody> mrigidBody;
-
-            mrigidBody->SetPos(ChVector<>(-0.5 * xnozzlesize + ChRandom() * xnozzlesize + xnozzle, ynozzle + i * 0.005, -0.5 * znozzlesize + ChRandom() * znozzlesize));
-            mrigidBody->SetMass(sphmass);
-            mrigidBody->SetInertiaXX(ChVector<>(sphinertia, sphinertia, sphinertia));
-            mrigidBody->SetMaterialSurface(mmaterial);
-
-            // Define a collision shape 
-            mrigidBody->GetCollisionModel()->ClearModel();
-            mrigidBody->GetCollisionModel()->AddBox(sphrad * 2 * xscale, sphrad * 2 * yscale, sphrad * 2 * yscale);
-            mrigidBody->GetCollisionModel()->BuildModel();
-            mrigidBody->SetCollide(true);
-
-            // Attach a visualization shape asset. 
-            std::shared_ptr<ChBoxShape> mbox;
-            mbox->GetBoxGeometry().SetLengths(ChVector<>(sphrad * 2 * xscale, sphrad * 2 * yscale, sphrad * 2 * yscale));
-            mrigidBody->AddAsset(mbox);
-            // Attach a visualization texture
-            std::shared_ptr<ChTexture> mtexture;
-            mtexture->SetTextureFilename("../objects/bluwhite.png");
-            mrigidBody->AddAsset(mtexture);
-
-            // Attach a custom asset. Look how to create and add a custom asset to the object! ***ALEX
-            std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
-            electric_asset->Cdim = ChVector<>(2 * sphrad, 2 * sphrad, 2 * sphrad);
-            electric_asset->conductivity = conductivity;
-            electric_asset->e_fraction = ElectricParticleProperty::e_fraction_box;
-            electric_asset->birthdate = mysystem.GetChTime();
-            mrigidBody->AddAsset(electric_asset);
-
-            // Finally, do not forget to add the body to the system:
-            mysystem.Add(mrigidBody);
-
-            // If Irrlicht is used, setup also the visualization proxy:
-            if (irr_application)
-            {
-                irr_application->AssetBind(mrigidBody);
-                irr_application->AssetUpdate(mrigidBody);
-            }
-            created_body = mrigidBody;
-        }
-
-        if (rand_fract > box_fraction + sph_fraction)
-        {
-            //	ChCollisionModel::SetDefaultSuggestedEnvelope(0.002);
-            //	ChCollisionModel::SetDefaultSuggestedMargin  (0.002);
-
-            auto mmaterial = std::make_shared<ChMaterialSurface>();
-            mmaterial->SetFriction(0.4f);
-            //mmaterial->SetImpactC(0.0f);
-
-            // Create a body
-            std::shared_ptr<ChBody> mrigidBody;
-
-            mrigidBody->SetPos(ChVector<>(-0.5 * xnozzlesize + ChRandom() * xnozzlesize + xnozzle, ynozzle + i * 0.005, -0.5 * znozzlesize + ChRandom() * znozzlesize));
-            mrigidBody->SetMass(cylmass);
-            mrigidBody->SetInertiaXX(ChVector<>(cylinertia, cylinertia2, cylinertia));
-            mrigidBody->SetMaterialSurface(mmaterial);
-
-            // Define a collision shape 
-            mrigidBody->GetCollisionModel()->ClearModel();
-            mrigidBody->GetCollisionModel()->AddCylinder(sphrad, sphrad, cylhei);
-            mrigidBody->GetCollisionModel()->BuildModel();
-            mrigidBody->SetCollide(true);
-
-            // Attach a visualization shape asset. 
-            std::shared_ptr<ChCylinderShape> mcyl(new ChCylinderShape);
-            mcyl->GetCylinderGeometry().rad = sphrad;
-            mcyl->GetCylinderGeometry().p1 = ChVector<>(0, cylhei / 2, 0);
-            mcyl->GetCylinderGeometry().p2 = ChVector<>(0, -cylhei / 2, 0);
-            mrigidBody->AddAsset(mcyl);
-            // Attach a visualization texture
-            std::shared_ptr<ChTexture> mtexture(new ChTexture);
-            mtexture->SetTextureFilename("../objects/bluwhite.png");
-            mrigidBody->AddAsset(mtexture);
-
-            // Attach a custom asset. Look how to create and add a custom asset to the object! ***ALEX
-            std::shared_ptr<ElectricParticleProperty> electric_asset(new ElectricParticleProperty);
-            electric_asset->Cdim = ChVector<>(sphrad * 2, cylhei, sphrad * 2);
-            electric_asset->conductivity = conductivity;
-            electric_asset->e_fraction = ElectricParticleProperty::e_fraction_cylinder;
-            electric_asset->birthdate = mysystem.GetChTime();
-            mrigidBody->AddAsset(electric_asset);
-
-            // Finally, do not forget to add the body to the system:
-            mysystem.Add(mrigidBody);
-
-            // If Irrlicht is used, setup also the visualization proxy:
-            if (irr_application)
-            {
-                irr_application->AssetBind(mrigidBody);
-                irr_application->AssetUpdate(mrigidBody);
-            }
-            created_body = mrigidBody;
-        }
-
-        // This is an optional hack that largely affects the stability of the
-        // simulation. 
-        // In fact, if particles happen to spin too fast, the collision detection
-        // starts to be very slow, and maybe also inaccurate; also, the time integration
-        // could diverge. To get rid of this problem wihtout reducing too much the timestep, 
-        // one can enable a limit on angular velocity and/or linear velocity. NOTE that 
-        // this achieves greater stability at the cost of lower realism of the simulation, 
-        // so it should not be abused. ***ALEX
-
-        bool do_velocity_clamping = true;
-
-        if (created_body && do_velocity_clamping)
-        {
-            created_body->SetLimitSpeed(true);
-            created_body->SetMaxSpeed(100);
-            created_body->SetMaxWvel(250);
-        }
-    }
-}
-
-
-void ElectrostaticCoronaSeparator::purge_debris(ChSystem& mysystem, double max_age) const
-{
-    for (auto body_iter = mysystem.IterBeginBodies(); body_iter != mysystem.IterEndBodies(); ++body_iter)
-    {
-        std::shared_ptr<ElectricParticleProperty>* elec_ass;
-        if (get_asset(body_iter, &elec_ass))
-        {
-            double particle_age = mysystem.GetChTime() - (*elec_ass)->birthdate;
+            double particle_age = mysystem.GetChTime() - elec_ass->birthdate;
             if (particle_age > max_age)
             {
-                mysystem.RemoveBody(*body_iter);
-                ++body_iter;
+                mysystem.Remove(body);
             }
         }
     }
 }
 
-void ElectrostaticCoronaSeparator::DrawForces(irrlicht::ChIrrApp& application, double scalefactor) const
+void ElectrostaticCoronaSeparator::purge_debris_byposition(ChSystem& mysystem, ChVector<> min_position, ChVector<> max_position)
+{
+    for (auto body_sel = 0; body_sel < mysystem.Get_bodylist()->size(); ++body_sel)
+    {
+        auto body = (*mysystem.Get_bodylist())[body_sel];
+
+        if (body->GetPos()(0) < min_position(0) || body->GetPos()(1) < min_position(1) || body->GetPos()(2) < min_position(2) ||
+            body->GetPos()(0) > max_position(0) || body->GetPos()(1) > max_position(1) || body->GetPos()(2) > max_position(2) )
+        {
+            mysystem.Remove(body);
+        }
+
+    }
+}
+
+void ElectrostaticCoronaSeparator::DrawForces(irrlicht::ChIrrApp& application, double scalefactor)
 {
     for (auto body_iter = application.GetSystem()->IterBeginBodies(); body_iter != application.GetSystem()->IterEndBodies(); ++body_iter)
     {
-        std::shared_ptr<ElectricParticleProperty>* elec_ass;
-        if (get_asset(body_iter, &elec_ass))
+        std::shared_ptr<ElectricParticleAsset> elec_ass;
+        if (GetAsset(*body_iter, elec_ass))
         {
             ChVector<> custom_force = (*body_iter)->Get_accumulated_force();
-            custom_force *= scalefactor;
+            custom_force *= scalefactor ? scalefactor : application.GetSymbolscale();
             irrlicht::ChIrrTools::drawSegment(application.GetVideoDriver(),
                 (*body_iter)->GetPos(),
-                (*body_iter)->GetPos() + custom_force,
-                                              irr::video::SColor(255, 0, 0, 255));
+                (*body_iter)->GetPos() + custom_force, irr::video::SColor(255, 0, 0, 255));
         }
     }
 }
 
-void ElectrostaticCoronaSeparator::UpdateTrajectories(irrlicht::ChIrrApp& application) const
+void ElectrostaticCoronaSeparator::UpdateTrajectories(irrlicht::ChIrrApp& application)
 {
     for (auto body_iter = application.GetSystem()->IterBeginBodies(); body_iter != application.GetSystem()->IterEndBodies(); ++body_iter)
     {
-        std::shared_ptr<ParticleTrajectory>* traj_ass;
-        if (get_asset(body_iter, &traj_ass))
+        std::shared_ptr<ParticleTrajectory> traj_ass;
+        if (GetAsset(*body_iter, traj_ass))
         {
-            // OK! trajectory storage!	
-            (*traj_ass)->positions.push_back((*body_iter)->GetPos());
-            (*traj_ass)->speeds.push_back((*body_iter)->GetPos_dt());
-
-            // remove excessive amount of elements
-            while ((*traj_ass)->positions.size() > (*traj_ass)->max_points)
-                (*traj_ass)->positions.pop_front();
-            while ((*traj_ass)->speeds.size() > (*traj_ass)->max_points)
-                (*traj_ass)->speeds.pop_front();
+            traj_ass->push_back((*body_iter)->GetPos(), (*body_iter)->GetPos_dt());
         }
     }
 }
 
-void ElectrostaticCoronaSeparator::DrawTrajectories(irrlicht::ChIrrApp& application) const
+void ElectrostaticCoronaSeparator::DrawTrajectories(irrlicht::ChIrrApp& application)
 {
     for (auto body_iter = application.GetSystem()->IterBeginBodies(); body_iter != application.GetSystem()->IterEndBodies(); ++body_iter)
     {
-        std::shared_ptr<ParticleTrajectory>* traj_ass;
-        if (get_asset(body_iter, &traj_ass))
+        std::shared_ptr<ParticleTrajectory> traj_ass;
+        if (GetAsset(*body_iter, traj_ass) && (traj_ass->positions.size()>1))
         {
-            int npoints = 0;
-            std::list<ChVector<>>::const_iterator iterator;
-            std::list<ChVector<>>::const_iterator iteratorspeed;
-            iteratorspeed = (*traj_ass)->speeds.begin();
-            for (iterator = (*traj_ass)->positions.begin(); iterator != (*traj_ass)->positions.end(); ++iterator)
+            auto iteratorA = traj_ass->positions.begin();
+            auto iteratorB = iteratorA; ++iteratorB;
+            auto iterator_speed = traj_ass->speeds.begin();
+
+            while (iteratorB != traj_ass->positions.end())
             {
-                ChVector<> pointA = (*body_iter)->GetPos();
-                ChVector<> pointB = *iterator;
-                ChVector<> speed = *iteratorspeed;
-                if (npoints > 0)
-                {
-                    double scalarspeed = speed.Length();
-                    double normalizedspeed = scalarspeed / 5.0;
-                    irr::video::SColor mcol(255, (int)(255. * normalizedspeed), (int)(255. * normalizedspeed), (int)(255. * (1.0 - normalizedspeed)));
-                    irrlicht::ChIrrTools::drawSegment(application.GetVideoDriver(),
-                        pointA,
-                        pointB,
-                        mcol);
-                }
-                pointA = pointB;
-                ++npoints;
-                ++iteratorspeed;
+                double scalarspeed = iterator_speed->Length();
+                double normalizedspeed = scalarspeed / 5.0;
+                irr::video::SColor mcol(255, (int)(255. * normalizedspeed), (int)(255. * normalizedspeed), (int)(255. * (1.0 - normalizedspeed)));
+                irrlicht::ChIrrTools::drawSegment(application.GetVideoDriver(), *iteratorA, *iteratorB, mcol);
+
+                ++iteratorA;
+                ++iteratorB;
+                ++iterator_speed;
+
             }
+            
+            
         }
     }
 }
+
 
 int ElectrostaticCoronaSeparator::Setup(ChSystem& system, irrlicht::ChIrrApp* application)
 {    
@@ -934,137 +731,89 @@ int ElectrostaticCoronaSeparator::Setup(ChSystem& system, irrlicht::ChIrrApp* ap
     mvisual->SetColor(ChColor(0.9f, 0.4f, 0.2f));
 
     auto mtexture = std::make_shared<ChTexture>();
-    mtexture->SetTextureFilename("cyltext");
+    mtexture->SetTextureFilename("cyltext.jpg");
     GetLog() << CHRONO_DATA_DIR << "\n";
     
 
-
+    // DRUM: rotating cylinder with electrostatic charge
     auto mrigidBodyDrum = std::make_shared<ChBodyEasyCylinder>(drum_diameter/2, drum_width, 7500, true, true);
     mrigidBodyDrum->SetNameString("drum");
     mrigidBodyDrum->AddAsset(mvisual);
-    mrigidBodyDrum->GetCollisionModel()->SetFamily(3);
-    mrigidBodyDrum->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1);
-    mrigidBodyDrum->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(2);
     mrigidBodyDrum->GetMaterialSurface()->SetFriction(surface_drum_friction);
     mrigidBodyDrum->GetMaterialSurface()->SetRestitution(surface_drum_restitution);
     mrigidBodyDrum->GetMaterialSurface()->SetRollingFriction(surface_drum_rolling_friction);
     mrigidBodyDrum->GetMaterialSurface()->SetSpinningFriction(surface_drum_spinning_friction);
-    mrigidBodyDrum->SetPos(ChVector<>(conveyor_length / 2, -(drum_diameter*0.5) - conveyor_thick / 2, 0));
+    mrigidBodyDrum->SetPos(ChVector<>(0,0,0));
+    //mrigidBodyDrum->SetPos(ChVector<>(conveyor_length / 2, -(drum_diameter*0.5) - conveyor_thick / 2, 0));
     mrigidBodyDrum->SetRot(ChQuaternion<>(sin(CH_C_PI_4), cos(CH_C_PI_4), 0 , 0));
     system.AddBody(mrigidBodyDrum);
-    
+    mrigidBodyDrum->GetCollisionModel()->SetFamily(3);
+    mrigidBodyDrum->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1);
+    mrigidBodyDrum->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(2);
+    drum_csys.pos = mrigidBodyDrum->GetPos();
 
-    ////auto mrigidBodySplitter1 = std::make_shared<ChBodyAuxRef>();
-    //auto mrigidBodySplitter1 = std::make_shared<ChBodyEasyBox>(0.1,0.1,0.1,7500,true,true);
-    //mrigidBodySplitter1->SetNameString("Splitter-10");
-    //mrigidBodySplitter1->AddAsset(mvisual);
-    //mrigidBodySplitter1->SetBodyFixed(true);
-    //mrigidBodySplitter1->GetCollisionModel()->SetFamily(3); // rivedere 
-    //mrigidBodySplitter1->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1); // rivedere
-    //mrigidBodySplitter1->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(2); // rivedere
-    //mrigidBodySplitter1->GetMaterialSurface()->SetFriction(0.1f);
-    //mrigidBodySplitter1->SetCollide(this->splitters_collide); // deactivate collision?
-    //mrigidBodySplitter1->SetPos(splitter1_csys.pos);
-    //mrigidBodySplitter1->SetRot(splitter1_csys.rot);
-    //system.AddBody(mrigidBodySplitter1);
-
-
-    ////auto mrigidBodySplitter2 = std::make_shared<ChBodyAuxRef>();
-    //auto mrigidBodySplitter2 = std::make_shared<ChBodyEasyBox>(0.1, 0.1, 0.1, 7500, true, true);
-    //mrigidBodySplitter2->SetNameString("Splitter2-1");
-    //mrigidBodySplitter2->SetBodyFixed(true);
-    //mrigidBodySplitter2->AddAsset(mvisual);
-    //mrigidBodySplitter2->GetCollisionModel()->SetFamily(3);// rivedere
-    //mrigidBodySplitter2->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1);// rivedere
-    //mrigidBodySplitter2->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(2);// rivedere
-    //mrigidBodySplitter2->GetMaterialSurface()->SetFriction(0.1f);
-    //mrigidBodySplitter2->SetCollide(this->splitters_collide); // deactivate collision?
-    //mrigidBodySplitter2->SetPos(splitter2_csys.pos);
-    //mrigidBodySplitter2->SetRot(splitter2_csys.rot);
-    //system.AddBody(mrigidBodySplitter2);
-
-
-    ////auto mrigidBodyBrush = std::make_shared<ChBodyAuxRef>();
-    //auto mrigidBodyBrush = std::make_shared<ChBodyEasyCylinder>(0.1, 0.05, 7500, true, true);
-    //mrigidBodyBrush->SetNameString("brush");
-    //mrigidBodyBrush->AddAsset(mvisual);
-    //mrigidBodyBrush->GetCollisionModel()->SetFamily(1); // rivedere
-    //mrigidBodyBrush->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(2);// rivedere
-    //mrigidBodyBrush->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(3);// rivedere
-    //mrigidBodyBrush->GetMaterialSurface()->SetFriction(0.9f);
-    //mrigidBodyBrush->SetPos(brush_csys.pos);
-    //mrigidBodyBrush->SetRot(brush_csys.rot);
-    //system.AddBody(mrigidBodyBrush);
-
-    
-    auto mrigidBodyConveyor = std::make_shared<ChConveyor>(conveyor_length, conveyor_thick, drum_width);
+    // CONVEYOR: vibrating plate on which particles flow before falling on the drum
+    // the conveyor is modeled as fixed box with no friction so that the particles will slip on it
+    double conveyor_inclination = 10 * (CH_C_PI / 180);
+    auto mrigidBodyConveyor = std::make_shared<ChBodyEasyBox>(conveyor_length, conveyor_thick, drum_width, true, true);
     mrigidBodyConveyor->SetNameString("conveyor");
     mrigidBodyConveyor->AddAsset(mvisual);
-    mrigidBodyConveyor->GetPlate()->GetCollisionModel()->SetFamily(2);
-    mrigidBodyConveyor->GetPlate()->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1);
-    mrigidBodyConveyor->GetPlate()->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(3);
     mrigidBodyConveyor->GetMaterialSurface()->SetFriction(surface_plate_friction);
     mrigidBodyConveyor->GetMaterialSurface()->SetRestitution(surface_plate_restitution);
     mrigidBodyConveyor->GetMaterialSurface()->SetRollingFriction(surface_plate_rolling_friction);
     mrigidBodyConveyor->GetMaterialSurface()->SetSpinningFriction(surface_plate_spinning_friction);
-    mrigidBodyConveyor->SetPos(ChVector<>(conveyor_length / 2, -(drum_diameter*0.5) - conveyor_thick / 2, 0));
-    mrigidBodyConveyor->SetPos(ChVector<>(0, -conveyor_thick, 0));
+    mrigidBodyConveyor->SetPos(ChVector<>(-conveyor_length*cos(conveyor_inclination)/2, drum_diameter/2+conveyor_thick + conveyor_length*sin(conveyor_inclination)/2, 0));
+    mrigidBodyConveyor->SetRot(ChQuaternion<>(sin(conveyor_inclination/2), 0, 0, cos(conveyor_inclination/2)));
     mrigidBodyConveyor->SetBodyFixed(true);
-    system.AddOtherPhysicsItem(mrigidBodyConveyor);
+    system.AddBody(mrigidBodyConveyor);
+    mrigidBodyConveyor->GetCollisionModel()->SetFamily(2);
+    mrigidBodyConveyor->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1);
+    mrigidBodyConveyor->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(3);
+    
+    // SPLITTERS: they intercept the particles that fall from the drum
+    auto mrigidBodySplitter1 = std::make_shared<ChBodyEasyBox>(0.01, drum_diameter/2, drum_diameter, 7500, splitters_collide, true);
+    mrigidBodySplitter1->SetNameString("splitter01");
+    mrigidBodySplitter1->AddAsset(mvisual);
+    mrigidBodySplitter1->SetBodyFixed(true);
+    mrigidBodySplitter1->GetMaterialSurface()->SetFriction(0.1f);
+    mrigidBodySplitter1->SetPos(ChVector<>( 0.2, -(drum_diameter*0.5) - conveyor_thick / 2, 0));
+    system.AddBody(mrigidBodySplitter1);
+    mrigidBodySplitter1->GetCollisionModel()->SetFamily(3);
+    mrigidBodySplitter1->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1);
+    mrigidBodySplitter1->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(2);
 
 
-    //
-    // Create a truss (absolute fixed reference body, for connecting the rotating cyl.)
-    //
+    auto mrigidBodySplitter2 = std::make_shared<ChBodyEasyBox>(0.01, drum_diameter/2, drum_diameter, 7500, splitters_collide, true);
+    mrigidBodySplitter2->SetNameString("splitter02");
+    mrigidBodySplitter2->SetBodyFixed(true);
+    mrigidBodySplitter2->AddAsset(mvisual);
+    mrigidBodySplitter2->GetMaterialSurface()->SetFriction(0.1f);
+    mrigidBodySplitter2->SetPos(ChVector<>( 0.4, -(drum_diameter*0.5) - conveyor_thick / 2, 0));
+    system.AddBody(mrigidBodySplitter2);
+    mrigidBodySplitter2->GetCollisionModel()->SetFamily(3);
+    mrigidBodySplitter2->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(1);
+    mrigidBodySplitter2->GetCollisionModel()->SetFamilyMaskNoCollisionWithFamily(2);
 
-    std::shared_ptr<ChBody> mtruss(new ChBody);
-    mtruss->SetPos(mrigidBodyDrum->GetPos());
-    mtruss->SetRot(mrigidBodyDrum->GetRot());
-    mtruss->SetBodyFixed(true);
-    mtruss->SetNameString("truss1");
-    system.AddBody(mtruss);
+    
+    // Fixed truss on which the drum rotates
+    auto drum_pivot = std::make_shared<ChBody>();
+    drum_pivot->SetPos(mrigidBodyDrum->GetPos());
+    drum_pivot->SetRot(mrigidBodyDrum->GetRot());
+    drum_pivot->SetBodyFixed(true);
+    drum_pivot->SetNameString("drum_pivot");
+    system.AddBody(drum_pivot);
 
-    //**Ida
-
-    //std::shared_ptr<ChBody> mtruss2(new ChBody);
-    //mtruss2->SetBodyFixed(true);
-    //mtruss->SetNameString("truss2");
-    //system.Add(mtruss2);
-
-    auto drum_link = std::make_shared<ChLinkLockRevolute>();
-    drum_link->Initialize(mrigidBodyDrum, mtruss, ChCoordsys<>(mrigidBodyDrum->GetPos(), mrigidBodyDrum->GetRot()) );
-    system.AddLink(drum_link);
-
+    // Impose rotation of the drum with ChLinkEngine
     auto drum_engine = std::make_shared<ChLinkEngine>();
     drum_engine->Set_eng_mode(ChLinkEngine::ENG_MODE_SPEED);
-    //drum_engine->Initialize(mrigidBodyDrum, mtruss, ChCoordsys<>(ChVector<>(0,0,1),ChQuaternion<>(1,0,0,0)));
-    drum_engine->Initialize(mrigidBodyDrum, mtruss, ChCoordsys<>(mrigidBodyDrum->GetPos()));
-    //drum_engine->Initialize(mrigidBodyDrum, mtruss, ChCoordsys<>(mrigidBodyDrum->GetPos(), mrigidBodyDrum->GetRot()));
+    drum_engine->Initialize(mrigidBodyDrum, drum_pivot, ChCoordsys<>(mrigidBodyDrum->GetPos()));
     drum_speed_function = std::dynamic_pointer_cast<ChFunction_Const>(drum_engine->Get_spe_funct());
-    drum_speed_function->Set_yconst(drumspeed_radss);
+    drum_speed_function->Set_yconst(drumspeed_rads);
     system.AddLink(drum_engine);
-
-        //***Ida
-
-    //std::shared_ptr<ChLinkEngine> mengine2;
-
-    //if (mrigidBodyBrush)
-    //{
-    //    mengine2 = std::make_shared<ChLinkEngine>();
-    //    std::shared_ptr<ChBody> mSpazzola(mrigidBodyBrush);
-    //    mengine2->Initialize(mSpazzola, mtruss2, brush_csys);
-
-    //    mengine2->Set_eng_mode(ChLinkEngine::ENG_MODE_SPEED);
-    //    if (auto mfun = std::dynamic_pointer_cast<ChFunction_Const>(mengine2->Get_spe_funct()))
-    //        mfun->Set_yconst(-drumspeed_radss); // angular speed in [rad/s]
-
-    //                                            // Finally, do not forget to add the body to the system:
-    //    system.Add(mengine2);
-    //}
 
     if (application)
     {
-        application->SetPaused(true);
+        //application->SetPaused(true);
         application->SetTryRealtime(true);
         application->AssetBindAll();
         application->AssetUpdateAll();
@@ -1252,6 +1001,8 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
 
     application.GetSystem()->ShowHierarchy(GetLog());
 
+    //create_debris_particlescan_original(timestep, 1000, *application.GetSystem(), &application);
+
 
     while (application.GetDevice()->run())
     {
@@ -1259,22 +1010,18 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
         //    break;
 
         application.GetVideoDriver()->beginScene(true, true, irr::video::SColor(255, 140, 161, 192));
-
         application.DrawAll();
-
         application.DoStep();
 
         if (!application.GetPaused())
         {
             totframes++;
 
-            // Apply the forces caused by electrodes of the CES machine:
-
+            // Apply the forces caused by electrodes of the CES machine
             apply_forces(application.GetSystem());
 
-
-            if (receiver.checkbox_plotforces->isChecked())
-                DrawForces(application, 1000);
+            if (receiver.checkbox_plotECSforces->isChecked())
+                DrawForces(application,ECSforces_scalefactor);
 
             if (receiver.checkbox_plottrajectories->isChecked())
                 DrawTrajectories(application);
@@ -1283,7 +1030,7 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
             //// Continuosly create debris that fall on the conveyor belt
             //this->emitter.EmitParticles(*application.GetSystem(), application.GetTimestep()); //***TEST***
 
-            //create_debris_particlescan(timestep, 1000, *application.GetSystem(), &application);
+            create_debris_particlescan(timestep, 1000, *application.GetSystem(), &application);
 
             //GetLog() << "Body positinos \n";
             //for (auto body_iter = application.GetSystem()->IterBeginBodies(); body_iter != application.GetSystem()->IterEndBodies(); ++body_iter)
@@ -1299,7 +1046,14 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
 
             // Limit the max age (in seconds) of debris particles on the scene, 
             // deleting the oldest ones, for performance
-            purge_debris(*application.GetSystem(), this->max_particle_age);
+            // purge_debris_byage(*application.GetSystem(), this->max_particle_age);
+
+
+            ChVector<> min_vector(-5, -drum_diameter, -drum_width*1.5);
+            ChVector<> max_vector(+5, +2, +drum_width*1.5);
+            purge_debris_byposition(*application.GetSystem(), min_vector, max_vector);
+
+            purge_debris_byage(*application.GetSystem(), 0.1);
 
 
             // Use the processor to count particle flow in the rectangle section:
@@ -1308,15 +1062,8 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
             // Continuosly check if some particle must be removed:
             processor_remover.ProcessParticles(*application.GetSystem());
 
-
-            //// Maybe the user played with the slider and changed the speed of drum...
-            //auto mengine = std::dynamic_pointer_cast<ChLinkEngine>(application.GetSystem()->Search("engine"));
-            //if (mengine)
-            //    if (auto mfun = std::dynamic_pointer_cast<ChFunction_Const>(mengine->Get_spe_funct()))
-            //        mfun->Set_yconst(-drumspeed_radss); // angular speed in [rad/s]
-
-            drum_speed_function->Set_yconst(-drumspeed_radss);
-            //std::cout << drumspeed_radss << std::endl;
+            // Update the drum speed in the link
+            drum_speed_function->Set_yconst(-drumspeed_rads);
 
             // update the assets containing the trajectories, if any
             if (receiver.checkbox_plottrajectories->isChecked())
@@ -1331,7 +1078,7 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
 
                 // Save log file as '.txt' files?
 
-                if (save_dataset == true)
+                if (save_dataset)
                 {
                     char buffer[120];
                     sprintf(buffer, "output/esempio_output%05d.txt", savenum);
@@ -1341,22 +1088,22 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
                     {
                         auto abody = (*application.GetSystem()->Get_bodylist())[i];
 
-                        // Fetch the ElectricParticleProperty asset from the list
+                        // Fetch the ElectricParticleAsset asset from the list
                         for (size_t na = 0; na < abody->GetAssets().size(); na++)
                         {
                             std::shared_ptr<ChAsset> myasset = abody->GetAssetN(na);
 
-                            if (auto electricproperties = std::dynamic_pointer_cast<ElectricParticleProperty>(myasset))
+                            if (auto electricproperties = std::dynamic_pointer_cast<ElectricParticleAsset>(myasset))
                             {
                                 // ok, its a particle!
 
                                 //double my_cond  = electricproperties->conductivity ;
-                                auto my_ElectricForce = electricproperties->ElectricForce;
-                                auto my_ElectricImageForce = electricproperties->ElectricImageForce;
-                                auto my_StokesForce = electricproperties->StokesForce;
-                                double rad = ((abody->GetMass()) * 3) / ((abody->GetDensity()) * 4 * CH_C_PI);
-                                ElectricParticleProperty::fraction_type fraction_identifier = electricproperties->e_fraction; // id will be 0=box, 1=cylinder, 2=sphere, 3=hull, 4=shavings, etc. (see enum)
-                                ElectricParticleProperty::material_type material_identifier = electricproperties->e_material; // id will be 0=plastic, 1=metal, 2=others (see enum)
+                                //auto my_ElectricForce = electricproperties->ElectricForce;
+                                //auto my_ElectricImageForce = electricproperties->ElectricImageForce;
+                                //auto my_StokesForce = electricproperties->StokesForce;
+                                //double rad = ((abody->GetMass()) * 3) / ((abody->GetDensity()) * 4 * CH_C_PI);
+                                //ElectricParticleAsset::fraction_type fraction_identifier = electricproperties->e_fraction; // id will be 0=box, 1=cylinder, 2=sphere, 3=hull, 4=shavings, etc. (see enum)
+                                //ElectricParticleAsset::material_type material_identifier = electricproperties->e_material; // id will be 0=plastic, 1=metal, 2=others (see enum)
 
                                 //// Save on disk some infos...
                                 //file_for_output << abody->GetIdentifier() << ", "
@@ -1381,7 +1128,7 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
 
                 // Save Irrlicht screenshots?
 
-                if (save_irrlicht_screenshots == true)
+                if (save_irrlicht_screenshots)
                 {
                     irr::video::IImage* image = application.GetVideoDriver()->createScreenShot();
                     char buffer[120];
@@ -1457,4 +1204,25 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
     GetLog() << "\n Simulation Terminated. \n ";
 
     return 0;
+}
+
+ElectricParticleAsset::material_type ElectrostaticCoronaSeparator::getElectricParticleProperty_material_type(int matID)
+{
+    switch (matID)
+    {
+    case 3:
+        return ElectricParticleAsset::material_type::e_mat_copper;
+    case 6:
+        return ElectricParticleAsset::material_type::e_mat_pcb6;
+    case 7:
+        return ElectricParticleAsset::material_type::e_mat_pcb7;
+    case 8:
+        return ElectricParticleAsset::material_type::e_mat_pcb8;
+    case 9:
+        return ElectricParticleAsset::material_type::e_mat_pcb9;
+    case 10:
+        return ElectricParticleAsset::material_type::e_mat_pcb10;
+    default:
+        return ElectricParticleAsset::material_type::e_mat_other;
+    }
 }

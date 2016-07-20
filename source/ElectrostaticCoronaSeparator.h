@@ -46,14 +46,82 @@ static void drawDistribution(irr::video::IVideoDriver* driver,
                              bool use_Zbuffer = false
 );
 
+template <typename asset_type>
+static bool GetAsset(const std::shared_ptr<ChBody>& body_iter, std::shared_ptr<asset_type>& desired_asset);
+
 class ElectrostaticCoronaSeparator 
 { 
 
 private:
-    double h1 = 0;	//analytical parameter****ida
-    double h2 = 0;    //analytical parameter****ida
-    double j = 0;//analytical parameter****ida
-    double f = 0;//analytical parameter****ida
+
+    class ParticleBucket
+    {
+    private:
+        ChCoordsys<double> plane_csys {{0,0,0},{1,0,0,0}};
+        double x_semi_width = 1;
+        double z_semi_width = 1;
+
+        
+    public:
+        size_t particle_caught = 0;
+
+        ParticleBucket(const ChCoordsys<double> csys, double x_width, double z_width): plane_csys(csys), x_semi_width(x_width/2), z_semi_width(z_width/2) {}
+        ~ParticleBucket(){}
+
+        bool IsCaught(const ChBody& body, bool count_catches = true)
+        {
+            auto local_pos = plane_csys.TransformPointParentToLocal(body.GetCoord().pos);
+
+            if (local_pos(1) < 0 &&
+                local_pos(0) < x_semi_width && local_pos(0) > -x_semi_width &&
+                local_pos(2) < z_semi_width && local_pos(2) > -z_semi_width
+                )
+            {
+                if (count_catches)
+                    ++particle_caught;
+                return true;
+            }
+
+
+            return false;
+        }
+
+        void CatchIf(ChSystem& mysystem, bool f(ChBody&) )
+        {
+            for (auto body_sel = 0; body_sel < mysystem.Get_bodylist()->size(); ++body_sel)
+            {
+                auto body = (*mysystem.Get_bodylist())[body_sel];
+
+                if (IsCaught(*body, true) && f(*body))
+                {
+                    mysystem.Remove(body);
+                }
+
+            }
+        }
+
+        void SetBucket(const ChVector<>& plane_center_position, const ChQuaternion<>& plane_orientation = ChQuaternion<>(1,0,0,0))
+        {
+            plane_csys.pos = plane_center_position;
+            plane_csys.rot = plane_orientation;
+        }
+
+        void SetWidth(double x_width, double z_width)
+        {
+            x_semi_width = x_width / 2;
+            z_semi_width = z_width / 2;
+        }
+
+        ChCoordsys<>& GetBucketCoordsys() { return plane_csys; }
+
+    };
+
+
+    double h1 = 0;
+    double h2 = 0;
+    double j = 0;
+    double f = 0;
+
 public:
 
 	// data for this type of asset 
@@ -77,7 +145,7 @@ public:
     //double drumspeed_rpm = 44.8; // [rpm]
     const double drumspeed_rpm_max = 100;
     double drumspeed_rpm = 50; // [rpm]
-    double drumspeed_radss = drumspeed_rpm*(CH_C_2PI / 60.0); //[rad/s]
+    double drumspeed_rads = drumspeed_rpm*(CH_C_2PI / 60.0); //[rad/s]
 
     std::shared_ptr<ChFunction_Const> drum_speed_function;
 
@@ -90,10 +158,12 @@ public:
     double surface_drum_rolling_friction = 0.0;
     double surface_drum_spinning_friction = 0.0;
     double surface_drum_restitution = 0;
+
     double surface_plate_friction = 0.2;
     double surface_plate_rolling_friction = 0;
     double surface_plate_spinning_friction = 0;
     double surface_plate_restitution = 0;
+
     std::shared_ptr<ChMaterialSurface> surface_particles;
 
     double max_particle_age = 2;
@@ -123,13 +193,13 @@ public:
     //ChCoordsys<> brush_csys{ conveyor_length / 2 - 0.10, -(0.320*0.5) - conveyor_thick / 2,0 };
 
 
-    ChCoordsys<> conveyor_csys;
+    //ChCoordsys<> conveyor_csys;
     ChCoordsys<> drum_csys;
 
     ChCoordsys<> nozzle_csys;
-    ChCoordsys<> splitter1_csys;
-    ChCoordsys<> splitter2_csys;
-    ChCoordsys<> brush_csys;
+    //ChCoordsys<> splitter1_csys;
+    //ChCoordsys<> splitter2_csys;
+    //ChCoordsys<> brush_csys;
 
 
     // set as true for saving log files each n frames
@@ -141,11 +211,14 @@ public:
 
     int totframes = 0;
     bool init_particle_speed = true;
-    double particle_magnification = 5; // for larger visualization of particle
+    double ECSforces_scalefactor = 1000;
+    double particle_magnification = 3; // for larger visualization of particle
     std::string results_file = "output/results.txt";
     double timestep = 0.001;
     double Tmax = 5;
     bool splitters_collide = true;
+
+    std::list<ParticleBucket> buckets;
 
     std::vector<std::shared_ptr<ChBody>> scanned_particles;
 
@@ -159,34 +232,28 @@ public:
     void apply_forces(ChSystem* msystem);
 
     /// Acquire particles information based on text file given by the spectrophotometric camera.
-    bool AcquireParticleScan(const char* filename);
+    bool LoadParticleScan(const char* filename);
 
     /// Creates random bodies according to the last scan.
     void create_debris_particlescan(double dt, double particles_second,
                                     ChSystem& mysystem,
                                     irrlicht::ChIrrApp* irr_application);
 
-    template <typename asset_type>
-    bool get_asset(ChAssembly::IteratorBodies& body_iter, std::shared_ptr<asset_type>** desired_asset) const;
-
-
-    void create_debris_particlescan_temp(double dt, double particles_second,
-                                         ChSystem& mysystem,
-                                         irrlicht::ChIrrApp* irr_application);
+    void create_debris_particlescan_original(double dt, double particles_second, ChSystem& mysystem, irrlicht::ChIrrApp* irr_application);
 
     /// Function that deletes old debris (to avoid infinite creation that fills memory)
-    void purge_debris(ChSystem& mysystem, double max_age = 5.0) const;
-
+    static void purge_debris_byage(ChSystem& mysystem, double max_age = 5.0);
+    static void purge_debris_byposition(ChSystem& mysystem, ChVector<> min_position, ChVector<> max_position);
     /// Function for drawing forces
-    void DrawForces(irrlicht::ChIrrApp& application, double scalefactor = 1.0) const;
+    static void DrawForces(irrlicht::ChIrrApp& application, double scalefactor = 0);
 
     /// Function to update trajectories. Must be
     /// called at each timestep
-    void UpdateTrajectories(irrlicht::ChIrrApp& application) const;
+    static void UpdateTrajectories(irrlicht::ChIrrApp& application);
 
     /// Function to draw trajectories. Must be
     /// called at each timestep
-    void DrawTrajectories(irrlicht::ChIrrApp& application) const;
+    static void DrawTrajectories(irrlicht::ChIrrApp& application);
 
     /// Add bodies belonging to ECS to the \c system and their visual assets to \c application
     int Setup(ChSystem& system, irrlicht::ChIrrApp* application);
@@ -197,12 +264,14 @@ public:
     /// by running the loop of time integration
     int RunSimulation(irrlicht::ChIrrApp& application);
 
+    static ElectricParticleAsset::material_type getElectricParticleProperty_material_type(int matID);
 
     void SetDrumSpeed(double speed_rpm)
     {
         drumspeed_rpm = speed_rpm;
-        drumspeed_radss = drumspeed_rpm*CH_C_2PI / 60;
+        drumspeed_rads = drumspeed_rpm*CH_C_2PI / 60;
     }
+
     double GetDrumSpeed() const { return drumspeed_rpm; }
 
 

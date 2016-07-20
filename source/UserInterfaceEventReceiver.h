@@ -30,8 +30,9 @@ public:
 	irr::gui::IGUIStaticText* text_flow;
 	irr::gui::IGUIScrollBar*  scrollbar_speed;
 	irr::gui::IGUIStaticText* text_speed;
-	irr::gui::IGUICheckBox*	checkbox_plotforces;
+	irr::gui::IGUICheckBox*	checkbox_plotECSforces;
 	irr::gui::IGUICheckBox*	checkbox_plottrajectories;
+    irr::gui::IGUIEditBox* editbox_ECSforces_scalefactor;
 };
 
 

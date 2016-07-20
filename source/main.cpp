@@ -72,8 +72,8 @@ int main(int argc, char* argv[])
         //// Load settings from file, if any
         //separator.ParseSettings(ces_settings_filename.c_str());
         separator.Setup(*application.GetSystem(), &application);
-        //separator.AcquireParticleScan("C:\\workspace\\ecs_particlescan\\input\\particlescan\\geometric_list-CU.txt");
-        separator.AcquireParticleScan("C:\\workspace\\ecs_particlescan\\input\\particlescan\\geometric_list-PCB.txt");
+        separator.LoadParticleScan("C:\\workspace\\ecs_particlescan\\input\\particlescan\\geometric_list-CU.txt");
+        separator.LoadParticleScan("C:\\workspace\\ecs_particlescan\\input\\particlescan\\geometric_list-PCB.txt");
         // Initialize and execute the simulation
         separator.RunSimulation(application);
 
