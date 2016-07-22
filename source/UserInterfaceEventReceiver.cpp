@@ -23,8 +23,9 @@ UserInterfaceEventReceiver::UserInterfaceEventReceiver(ChIrrAppInterface* myapp,
 	// ..add a GUI slider to control particles flow
 	scrollbar_flow = application->GetIGUIEnvironment()->addScrollBar(
 					true, rect<s32>(560, 15, 700, 15+20), nullptr, 101);
-	scrollbar_flow->setMax(100);
-	scrollbar_flow->setPos(((int)((mysimulator->emitter.ParticlesPerSecond()/1000.0 )*25)));
+    scrollbar_flow->setMax(5000);
+	//scrollbar_flow->setPos(mysimulator->emitter.ParticlesPerSecond());
+	scrollbar_flow->setPos(simulator->particle_flow);
 	text_flow = application->GetIGUIEnvironment()->addStaticText(
 				L"Flow [particles/s]", rect<s32>(710,15,800,15+20), false);
 
@@ -44,8 +45,9 @@ UserInterfaceEventReceiver::UserInterfaceEventReceiver(ChIrrAppInterface* myapp,
 	checkbox_plottrajectories = application->GetIGUIEnvironment()->addCheckBox(false,core::rect<s32>(560,90, 560+150,90+20),
 					0, 106, L"Plot trajectories");
 
-    editbox_ECSforces_scalefactor = application->GetIGUIEnvironment()->addEditBox(L"ECS forces scalefactor", core::rect<s32>(560, 115, 560 + 150, 115 + 20), true, nullptr, 103);
-    //editbox_ECSforces_scalefactor = application->GetIGUIEnvironment()->addEditBox( , core::rect<s32>(560, 115, 560 + 150, 115 + 20),true);
+    //editbox_ECSforces_scalefactor = application->GetIGUIEnvironment()->addEditBox(L"scale", core::rect<s32>(560, 115, 560 + 50, 115 + 20), true, nullptr, 103);
+    //text_ECSforces = application->GetIGUIEnvironment()->addStaticText(
+    //    L"ECS forces scalefactor", rect<s32>(560 + 70, 115, 560 + 70+ 90, 15 + 20), false);
 	
 
 }
@@ -65,8 +67,10 @@ bool UserInterfaceEventReceiver::OnEvent(const SEvent& event)
 				if (id == 101) // id of 'flow' slider..
 				{
 					s32 pos = ((IGUIScrollBar*)event.GUIEvent.Caller)->getPos();
-					simulator->emitter.ParticlesPerSecond() = 1000* ((double)pos/25);
-					char message[50]; sprintf(message,"Flow %d [particl/s]", (int)simulator->emitter.ParticlesPerSecond());
+					//simulator->emitter.ParticlesPerSecond() = 1000* ((double)pos/25);
+					simulator->particle_flow = pos;
+					//char message[50]; sprintf(message,"Flow %d [particl/s]", (int)simulator->emitter.ParticlesPerSecond());
+					char message[50]; sprintf(message,"Flow %d [p/s]", static_cast<int>(simulator->particle_flow));
 					text_flow->setText(core::stringw(message).c_str());
 				}
 				if (id == 102) // id of 'speed' slider..
@@ -79,14 +83,19 @@ bool UserInterfaceEventReceiver::OnEvent(const SEvent& event)
 				}
 		break;
 
-        case EGET_EDITBOX_ENTER:
-            if (id == 103)
-            {
-                simulator->ECSforces_scalefactor = atof(irr::core::stringc(((irr::gui::IGUIEditBox*)event.GUIEvent.Caller)->getText()).c_str());
-                break;
-            }
+        //case EGET_EDITBOX_ENTER:
+        //    if (id == 103)
+        //    {
+        //        simulator->ECSforces_scalefactor = atof(irr::core::stringc(((irr::gui::IGUIEditBox*)event.GUIEvent.Caller)->getText()).c_str());
+        //        break;
+        //    }
+        //    break;
+
+        default:
             break;
 		}
+
+        
 	} 
 
 

@@ -464,9 +464,9 @@ bool ElectrostaticCoronaSeparator::LoadParticleScan(const char* filename)
 
             // create body
             auto convex_hull_temp = std::make_shared<ChBodyEasyConvexHull>(convex_hull_points, basic_elec_asset->GetDensity(), true, true);
+            convex_hull_temp->SetMass(particle_mass);
             convex_hull_temp->SetInertiaXX(ChVector<>(I1, I2, I3));
             convex_hull_temp->AddAsset(basic_elec_asset);
-
 
             scanned_particles.push_back(convex_hull_temp);
 
@@ -482,7 +482,7 @@ bool ElectrostaticCoronaSeparator::LoadParticleScan(const char* filename)
     return true;
 }
 
-void ElectrostaticCoronaSeparator::create_debris_particlescan(double dt, double particles_second, ChSystem& mysystem, irrlicht::ChIrrApp* irr_application)
+void ElectrostaticCoronaSeparator::create_debris_particlescan(double particles_second, ChSystem& mysystem, irrlicht::ChIrrApp* irr_application)
 {
     assert(scanned_particles.size() > 0);
     auto mmaterial = std::make_shared<ChMaterialSurface>();
@@ -493,7 +493,7 @@ void ElectrostaticCoronaSeparator::create_debris_particlescan(double dt, double 
     double ynozzle = drum_diameter;
 
     //TODO: is it so critical the number of particles that has to be set with this bizarre method?
-    double exact_particles_dt = dt * particles_second;
+    double exact_particles_dt = mysystem.GetStep() * particles_second;
     double particles_dt = floor(exact_particles_dt);
     double remaind = exact_particles_dt - particles_dt;
     if (remaind > ChRandom()) particles_dt += 1;
@@ -510,12 +510,12 @@ void ElectrostaticCoronaSeparator::create_debris_particlescan(double dt, double 
         auto mrigidBody = std::make_shared<ChBody>(*scanned_particles[selected_particle]); // member variables copied
         mrigidBody->GetCollisionModel()->AddCopyOfAnotherModel(scanned_particles[selected_particle]->GetCollisionModel()); // collision model shared
 
-        // the new body currently SHARES the assets with the 'master' particle
+        // Purge the particle from the 'master' assets of the 'scanned_particle' and link a new one.
+        // the new body still SHARES the assets with the 'master' particle!
         std::shared_ptr<ElectricParticleAsset> elec_asset_old;
         GetAsset(mrigidBody, elec_asset_old); // the pointer still points to the same asset of the master particle
         auto elec_asset = std::make_shared<ElectricParticleAsset>(*elec_asset_old);
-        elec_asset->UpdateCharacteristicSize(*mrigidBody);
-        for (auto iter = mrigidBody->GetAssets().begin(); iter!=mrigidBody->GetAssets().end(); ++iter)
+        for (auto iter = mrigidBody->GetAssets().begin(); iter!=mrigidBody->GetAssets().end(); ++iter) //TODO: purge the old ElectricParticleAsset shared pointer in other way
         {
             if (std::dynamic_pointer_cast<ElectricParticleAsset>(*iter))
             {
@@ -524,20 +524,17 @@ void ElectrostaticCoronaSeparator::create_debris_particlescan(double dt, double 
                     break;
             }
         }
+        elec_asset->UpdateCharacteristicSize(*mrigidBody);
+        elec_asset->birthdate = mysystem.GetChTime();
         mrigidBody->AddAsset(elec_asset);
 
-        // add visual asset
         mrigidBody->AddAsset(elec_asset->GetDefaultColorAsset()); //share the default asset with all the bodies of the same material
-
-        // create trajectory asset
-        auto traj_asset = std::make_shared<ParticleTrajectory>();
-        mrigidBody->AddAsset(traj_asset);
-
         
-        elec_asset->birthdate = mysystem.GetChTime();
-        
-        mrigidBody->SetPos(ChVector<>((ChRandom()-0.5) * xnozzlesize + xnozzle, ynozzle + i * 0.005, (ChRandom()-0.5) * znozzlesize));
+        mrigidBody->SetPos(ChVector<>((ChRandom() - 0.5) * xnozzlesize + xnozzle, ynozzle + i * 0.005, (ChRandom() - 0.5) * znozzlesize));
         mrigidBody->SetMaterialSurface(mmaterial);
+
+         auto traj_asset = std::make_shared<ParticleTrajectory>();
+        mrigidBody->AddAsset(traj_asset);
 
         mysystem.AddBody(mrigidBody);
 
@@ -679,7 +676,7 @@ void ElectrostaticCoronaSeparator::DrawForces(irrlicht::ChIrrApp& application, d
     }
 }
 
-void ElectrostaticCoronaSeparator::UpdateTrajectories(irrlicht::ChIrrApp& application)
+void ElectrostaticCoronaSeparator::UpdateTrajectories(irrlicht::ChIrrApp& application, bool only_those_on_drum)
 {
     for (auto body_iter = application.GetSystem()->IterBeginBodies(); body_iter != application.GetSystem()->IterEndBodies(); ++body_iter)
     {
@@ -691,7 +688,7 @@ void ElectrostaticCoronaSeparator::UpdateTrajectories(irrlicht::ChIrrApp& applic
     }
 }
 
-void ElectrostaticCoronaSeparator::DrawTrajectories(irrlicht::ChIrrApp& application)
+void ElectrostaticCoronaSeparator::DrawTrajectories(irrlicht::ChIrrApp& application, bool only_those_on_drum)
 {
     for (auto body_iter = application.GetSystem()->IterBeginBodies(); body_iter != application.GetSystem()->IterEndBodies(); ++body_iter)
     {
@@ -813,8 +810,8 @@ int ElectrostaticCoronaSeparator::Setup(ChSystem& system, irrlicht::ChIrrApp* ap
 
     if (application)
     {
-        //application->SetPaused(true);
-        application->SetTryRealtime(true);
+        /*application->SetPaused(true);*/
+        //application->SetTryRealtime(true);
         application->AssetBindAll();
         application->AssetUpdateAll();
     }
@@ -986,12 +983,6 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
     // THE SOFT-REAL-TIME CYCLE
     //
 
-    application.SetStepManage(true);
-    application.SetTimestep(this->timestep);
-
-    application.GetSystem()->SetIntegrationType(ChSystem::INT_ANITESCU);
-    application.GetSystem()->SetSolverType(ChSystem::SOLVER_SOR_MULTITHREAD);// SOLVER_SOR_MULTITHREAD or SOLVER_BARZILAIBORWEIN for max precision
-
     application.GetSystem()->Set_G_acc(ChVector<>(0, -9.81, 0));
 
     int savenum = 0;
@@ -1002,7 +993,6 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
     application.GetSystem()->ShowHierarchy(GetLog());
 
     //create_debris_particlescan_original(timestep, 1000, *application.GetSystem(), &application);
-
 
     while (application.GetDevice()->run())
     {
@@ -1024,20 +1014,19 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
                 DrawForces(application,ECSforces_scalefactor);
 
             if (receiver.checkbox_plottrajectories->isChecked())
-                DrawTrajectories(application);
+                DrawTrajectories(application,);
 
 
             //// Continuosly create debris that fall on the conveyor belt
             //this->emitter.EmitParticles(*application.GetSystem(), application.GetTimestep()); //***TEST***
 
-            create_debris_particlescan(timestep, 1000, *application.GetSystem(), &application);
+            create_debris_particlescan(particle_flow, *application.GetSystem(), &application);
 
             //GetLog() << "Body positinos \n";
             //for (auto body_iter = application.GetSystem()->IterBeginBodies(); body_iter != application.GetSystem()->IterEndBodies(); ++body_iter)
             //{
             //    GetLog() <<(*body_iter)->GetPos();
             //}
-
 
             //GetLog() << "Total mass=" << this->emitter.GetTotCreatedMass() << "   "
             //    << "Total n.part=" << this->emitter.GetTotCreatedParticles() << "   "
@@ -1048,13 +1037,10 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
             // deleting the oldest ones, for performance
             // purge_debris_byage(*application.GetSystem(), this->max_particle_age);
 
-
+            // remove bodies that go out of scope
             ChVector<> min_vector(-5, -drum_diameter, -drum_width*1.5);
             ChVector<> max_vector(+5, +2, +drum_width*1.5);
             purge_debris_byposition(*application.GetSystem(), min_vector, max_vector);
-
-            purge_debris_byage(*application.GetSystem(), 0.1);
-
 
             // Use the processor to count particle flow in the rectangle section:
             processor_distribution.ProcessParticles(*application.GetSystem());
@@ -1068,7 +1054,7 @@ int ElectrostaticCoronaSeparator::RunSimulation(irrlicht::ChIrrApp& application)
             // update the assets containing the trajectories, if any
             if (receiver.checkbox_plottrajectories->isChecked())
                 if (totframes % 20 == 0)
-                    UpdateTrajectories(application);
+                    UpdateTrajectories(application,);
 
             // Save data on file (each n integration steps, to avoid filling
             // the hard disk and to improve performance)

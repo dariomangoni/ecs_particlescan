@@ -63,6 +63,12 @@ int main(int argc, char* argv[])
     if (irr_cast_shadows)
         application.AddLightWithShadow(irr::core::vector3df(-4.5f, 5.5f, 4.5f), irr::core::vector3df(0.f, 0.f, 0.f), 10, 1.2, 10.2, 30, 512, irr::video::SColorf(1.f, 0.9f, 0.9f));
 
+    application.SetStepManage(true);
+    application.SetTimestep(0.001);
+
+    application.GetSystem()->SetIntegrationType(ChSystem::INT_ANITESCU);
+    application.GetSystem()->SetSolverType(ChSystem::SOLVER_SOR_MULTITHREAD);// SOLVER_SOR_MULTITHREAD or SOLVER_BARZILAIBORWEIN for max precision
+
 
     try
     {

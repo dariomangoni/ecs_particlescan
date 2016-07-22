@@ -177,6 +177,7 @@ public:
     double flowmeter_y = -0.1;
     int    flowmeter_bins = 25;
 
+    double particle_flow = 1000; // this is redundant with the one in particle_emitter
 
     // Coordinate systems with position and rotation of important items in the 
     // separator.
@@ -214,7 +215,6 @@ public:
     double ECSforces_scalefactor = 1000;
     double particle_magnification = 3; // for larger visualization of particle
     std::string results_file = "output/results.txt";
-    double timestep = 0.001;
     double Tmax = 5;
     bool splitters_collide = true;
 
@@ -235,7 +235,7 @@ public:
     bool LoadParticleScan(const char* filename);
 
     /// Creates random bodies according to the last scan.
-    void create_debris_particlescan(double dt, double particles_second,
+    void create_debris_particlescan(double particles_second,
                                     ChSystem& mysystem,
                                     irrlicht::ChIrrApp* irr_application);
 
@@ -249,11 +249,11 @@ public:
 
     /// Function to update trajectories. Must be
     /// called at each timestep
-    static void UpdateTrajectories(irrlicht::ChIrrApp& application);
+    static void UpdateTrajectories(irrlicht::ChIrrApp& application, bool only_those_on_drum = true);
 
     /// Function to draw trajectories. Must be
     /// called at each timestep
-    static void DrawTrajectories(irrlicht::ChIrrApp& application);
+    static void DrawTrajectories(irrlicht::ChIrrApp& application, bool only_those_on_drum = true);
 
     /// Add bodies belonging to ECS to the \c system and their visual assets to \c application
     int Setup(ChSystem& system, irrlicht::ChIrrApp* application);

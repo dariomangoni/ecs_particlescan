@@ -32,7 +32,8 @@ public:
 	irr::gui::IGUIStaticText* text_speed;
 	irr::gui::IGUICheckBox*	checkbox_plotECSforces;
 	irr::gui::IGUICheckBox*	checkbox_plottrajectories;
-    irr::gui::IGUIEditBox* editbox_ECSforces_scalefactor;
+    //irr::gui::IGUIEditBox* editbox_ECSforces_scalefactor;
+    //irr::gui::IGUIStaticText* text_ECSforces;
 };
 
 
